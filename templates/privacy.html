@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - ETH Rewards Report</title>
+    <style nonce="{{ request.csp_nonce }}">
+        :root {
+            --bg: #0f1419;
+            --card: #192734;
+            --input: #253341;
+            --border: #38444d;
+            --text: #e1e8ed;
+            --text-dim: #8899a6;
+            --text-muted: #657786;
+            --blue: #1da1f2;
+            --blue-dim: rgba(29,161,242,0.12);
+            --green: #17bf63;
+            --green-dim: rgba(23,191,99,0.12);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.6; }
+
+        nav { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 20px; }
+        nav .nav-inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; height: 52px; gap: 24px; }
+        nav .nav-brand { font-weight: 700; color: #fff; text-decoration: none; font-size: 15px; }
+        nav .nav-brand span { color: var(--blue); }
+        nav a { color: var(--text-dim); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+        nav a:hover { color: #fff; }
+        nav a.active { color: var(--blue); }
+
+        .container { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+        h1 { font-size: 28px; color: #fff; margin-bottom: 8px; }
+        .subtitle { color: var(--text-dim); margin-bottom: 40px; font-size: 15px; }
+        .card { background: var(--card); border-radius: 12px; padding: 28px; margin-bottom: 20px; }
+        .card h2 { font-size: 17px; color: #fff; margin-bottom: 12px; font-weight: 600; }
+        .card p { color: var(--text-dim); font-size: 14px; margin-bottom: 12px; }
+        .card ul { color: var(--text-dim); font-size: 14px; margin-left: 20px; margin-bottom: 12px; }
+        .card li { margin-bottom: 6px; }
+        .card strong { color: var(--text); }
+        .card .good { background: var(--green-dim); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--green); margin-top: 12px; }
+        .last-updated { color: var(--text-muted); font-size: 12px; margin-bottom: 32px; }
+
+        .privacy-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 16px 0; }
+        .privacy-item { background: var(--input); border-radius: 8px; padding: 16px; text-align: center; }
+        .privacy-icon { font-size: 24px; margin-bottom: 8px; }
+        .privacy-label { font-size: 13px; color: var(--green); font-weight: 600; }
+        .privacy-desc { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+        table.priv-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+        table.priv-table th { text-align: left; padding: 8px 12px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+        table.priv-table td { padding: 8px 12px; border-bottom: 1px solid rgba(56,68,77,0.4); color: var(--text-dim); }
+        table.priv-table td:first-child { color: #fff; font-weight: 500; }
+
+        footer { text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px; }
+        footer a { color: var(--text-dim); text-decoration: none; }
+        footer a:hover { color: #fff; }
+
+        @media (max-width: 500px) {
+            .privacy-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="nav-brand"><span>ETH</span> Rewards Report</a>
+            <a href="/info">How It Works</a>
+            <a href="/terms">Terms</a>
+            <a href="/privacy" class="active">Privacy</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>Privacy Policy</h1>
+        <p class="subtitle">Your privacy is a core design principle of this tool</p>
+        <p class="last-updated">Last updated: February 2025</p>
+
+        <div class="card">
+            <h2>What Data Is Processed</h2>
+            <p>When you generate a report, the following data flows through the application:</p>
+
+            <table class="priv-table">
+                <thead>
+                    <tr><th>Data</th><th>How It's Used</th><th>Stored?</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Wallet address</td><td>Sent to Etherscan & Beacon API to fetch your transactions</td><td>No &mdash; discarded after report generation</td></tr>
+                    <tr><td>Validator index</td><td>Sent to Beacon API to resolve withdrawal address</td><td>No &mdash; discarded after report generation</td></tr>
+                    <tr><td>Etherscan API key</td><td>Used to authenticate Etherscan API requests</td><td>No &mdash; never stored server-side</td></tr>
+                    <tr><td>Generated report</td><td>Held in server memory until downloaded</td><td>Deleted immediately after download (max 10 min if not downloaded)</td></tr>
+                    <tr><td>Price data</td><td>Cached locally for faster subsequent queries</td><td>Yes &mdash; only generic ETH prices, no user data</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Client-Side Storage</h2>
+            <p>Your browser stores some settings locally for convenience:</p>
+            <ul>
+                <li><strong>localStorage:</strong> Date range and currency preferences (no sensitive data)</li>
+                <li><strong>sessionStorage:</strong> Account names, addresses, and API keys &mdash; automatically cleared when you close the browser tab</li>
+            </ul>
+            <p>No cookies are set. No data is sent to any analytics or advertising service.</p>
+            <div class="good">
+                <strong>Tip:</strong> Use your browser's private/incognito mode for an extra layer of privacy. All session data will be cleared automatically when you close the window.
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Third-Party API Requests</h2>
+            <p>To generate your report, the server makes API calls to the following services. These services will see your wallet address as part of the API request:</p>
+            <ul>
+                <li><strong>Etherscan (etherscan.io)</strong> &mdash; receives your wallet address and API key to fetch transaction data. Subject to <a href="https://etherscan.io/terms" style="color:var(--blue)">Etherscan's Terms</a>.</li>
+                <li><strong>Beacon Chain API (publicnode.com)</strong> &mdash; receives validator index/pubkey to resolve withdrawal address. No API key required.</li>
+                <li><strong>CryptoCompare (cryptocompare.com)</strong> &mdash; receives only the currency pair (ETH/EUR etc.) and time range. <strong>No wallet data is sent.</strong></li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Aggregate Usage Statistics</h2>
+            <p>The application maintains a small set of <strong>aggregate counters</strong> to track overall usage. These are stored in a local <code style="background:var(--input);padding:2px 6px;border-radius:4px;font-size:12px;color:var(--blue)">stats.json</code> file on the server:</p>
+            <ul>
+                <li><strong>Page views</strong> &mdash; how many times the home page has been loaded</li>
+                <li><strong>Reports started</strong> &mdash; how many report generations were initiated</li>
+                <li><strong>Reports completed</strong> &mdash; how many reports finished successfully</li>
+            </ul>
+            <p>These counters are simple numbers. <strong>No personal data is recorded</strong> &mdash; no IP addresses, no wallet addresses, no timestamps, no user agent strings. It is impossible to trace any counter increment back to an individual user.</p>
+            <p>These statistics are visible on the <a href="/dashboard" style="color:var(--blue)">dashboard page</a>.</p>
+        </div>
+
+        <div class="card">
+            <h2>Security Measures</h2>
+            <p>The following security measures are implemented:</p>
+            <ul>
+                <li><strong>Content Security Policy (CSP)</strong> &mdash; prevents loading of external scripts and resources</li>
+                <li><strong>No external dependencies</strong> &mdash; all CSS and JavaScript is self-contained, no CDN requests</li>
+                <li><strong>X-Frame-Options: DENY</strong> &mdash; prevents embedding in iframes</li>
+                <li><strong>Referrer-Policy: no-referrer</strong> &mdash; no referrer information is sent when navigating</li>
+                <li><strong>Permissions-Policy</strong> &mdash; disables interest cohort (FLoC) tracking</li>
+                <li><strong>API keys as password fields</strong> &mdash; your API keys are masked in the form</li>
+            </ul>
+        </div>
+
+        <div class="card">
+            <h2>Self-Hosting</h2>
+            <p>For maximum privacy, you can run this tool entirely on your own machine. The source code is open and available for review. When self-hosting:</p>
+            <ul>
+                <li>All API calls go directly from your machine to the data providers</li>
+                <li>No data passes through any intermediary server</li>
+                <li>You have full control over the price cache and all generated data</li>
+                <li>No network requests are made except to Etherscan, CryptoCompare, and the Beacon Chain API</li>
+            </ul>
+        </div>
+    </div>
+
+    <footer>
+        <a href="/">Back to Report Generator</a>
+    </footer>
+</body>
+</html>

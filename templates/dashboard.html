@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - ETH Rewards Report</title>
+    <style nonce="{{ request.csp_nonce }}">
+        :root {
+            --bg: #0f1419;
+            --card: #192734;
+            --input: #253341;
+            --border: #38444d;
+            --text: #e1e8ed;
+            --text-dim: #8899a6;
+            --text-muted: #657786;
+            --blue: #1da1f2;
+            --blue-dim: rgba(29,161,242,0.12);
+            --green: #17bf63;
+            --green-dim: rgba(23,191,99,0.12);
+            --purple: #7856ff;
+            --purple-dim: rgba(120,86,255,0.12);
+            --orange: #f5a623;
+            --orange-dim: rgba(245,166,35,0.12);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.6; }
+
+        nav { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 20px; }
+        nav .nav-inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; height: 52px; gap: 24px; }
+        nav .nav-brand { font-weight: 700; color: #fff; text-decoration: none; font-size: 15px; }
+        nav .nav-brand span { color: var(--blue); }
+        nav a { color: var(--text-dim); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+        nav a:hover { color: #fff; }
+        nav a.active { color: var(--blue); }
+
+        .container { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+        h1 { font-size: 28px; color: #fff; margin-bottom: 8px; }
+        .subtitle { color: var(--text-dim); margin-bottom: 40px; font-size: 15px; }
+
+        .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 32px; }
+        .stat-card { background: var(--card); border-radius: 12px; padding: 24px; text-align: center; }
+        .stat-card .stat-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; margin: 0 auto 16px; }
+        .stat-card.views .stat-icon { background: var(--blue-dim); }
+        .stat-card.generated .stat-icon { background: var(--purple-dim); }
+        .stat-card.completed .stat-icon { background: var(--green-dim); }
+        .stat-card .stat-value { font-size: 36px; font-weight: 800; color: #fff; font-family: 'SF Mono', monospace; }
+        .stat-card .stat-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-top: 8px; }
+
+        .info-card { background: var(--card); border-radius: 12px; padding: 24px; }
+        .info-card h2 { font-size: 15px; color: #fff; margin-bottom: 12px; }
+        .info-card p { color: var(--text-dim); font-size: 13px; margin-bottom: 8px; }
+        .info-card .note { background: var(--blue-dim); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--blue); margin-top: 12px; }
+
+        .refresh-btn { background: var(--input); border: 1px solid var(--border); color: var(--text-dim); padding: 8px 16px; border-radius: 6px; font-size: 13px; cursor: pointer; transition: all 0.15s; float: right; margin-top: -4px; }
+        .refresh-btn:hover { border-color: var(--blue); color: #fff; }
+
+        footer { text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px; }
+        footer a { color: var(--text-dim); text-decoration: none; }
+        footer a:hover { color: #fff; }
+
+        @media (max-width: 600px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="nav-brand"><span>ETH</span> Rewards Report</a>
+            <a href="/info">How It Works</a>
+            <a href="/terms">Terms</a>
+            <a href="/privacy">Privacy</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>Dashboard <button class="refresh-btn" id="refreshBtn">Refresh</button></h1>
+        <p class="subtitle">Aggregate usage statistics &mdash; no personal data is tracked</p>
+
+        <div class="stats-grid">
+            <div class="stat-card views">
+                <div class="stat-icon">&#x1F441;</div>
+                <div class="stat-value" id="pageViews">-</div>
+                <div class="stat-label">Page Views</div>
+            </div>
+            <div class="stat-card generated">
+                <div class="stat-icon">&#x26A1;</div>
+                <div class="stat-value" id="reportsGenerated">-</div>
+                <div class="stat-label">Reports Started</div>
+            </div>
+            <div class="stat-card completed">
+                <div class="stat-icon">&#x2705;</div>
+                <div class="stat-value" id="reportsCompleted">-</div>
+                <div class="stat-label">Reports Completed</div>
+            </div>
+        </div>
+
+        <div class="info-card">
+            <h2>About This Dashboard</h2>
+            <p>This dashboard shows aggregate counters only. No personal information, wallet addresses, IP addresses, or browsing data is collected or stored.</p>
+            <p>Counters are stored in a local <code style="background:var(--input);padding:2px 6px;border-radius:4px;font-size:12px;color:var(--blue)">stats.json</code> file on the server and reset when the file is deleted.</p>
+            <div class="note">
+                <strong>Privacy note:</strong> These counters cannot be traced back to individual users. They simply count how many times the page has been loaded and how many reports have been generated in total.
+            </div>
+        </div>
+    </div>
+
+    <footer>
+        <a href="/">Back to Report Generator</a>
+    </footer>
+
+    <script nonce="{{ request.csp_nonce }}">
+        async function loadStats() {
+            try {
+                const resp = await fetch('/api/stats');
+                const data = await resp.json();
+                document.getElementById('pageViews').textContent = data.page_views.toLocaleString();
+                document.getElementById('reportsGenerated').textContent = data.reports_generated.toLocaleString();
+                document.getElementById('reportsCompleted').textContent = data.reports_completed.toLocaleString();
+            } catch (e) {
+                console.error('Failed to load stats:', e);
+            }
+        }
+        loadStats();
+        document.getElementById('refreshBtn').addEventListener('click', loadStats);
+    </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+# Required - get free at etherscan.io/apis
+etherscan_api_key: ""
+
+accounts:
+  - name: "main"
+    withdrawal_address: "0x..."
+  - name: "solo"
+    withdrawal_address: "0x..."
+  # Alternative: look up by validator index (resolved automatically)
+  # - name: "by-index"
+  #   validator_index: 652648
+  # Alternative: multiple validator indices
+  # - name: "my-validators"
+  #   validator_indices: [652648, 652649, 652650]
+  # Alternative: look up by public key (resolved automatically)
+  # - name: "by-pubkey"
+  #   validator_pubkey: "0x..."

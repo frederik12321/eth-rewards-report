@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>How It Works - ETH Rewards Report</title>
+    <style nonce="{{ request.csp_nonce }}">
+        :root {
+            --bg: #0f1419;
+            --card: #192734;
+            --input: #253341;
+            --border: #38444d;
+            --text: #e1e8ed;
+            --text-dim: #8899a6;
+            --text-muted: #657786;
+            --blue: #1da1f2;
+            --blue-dim: rgba(29,161,242,0.12);
+            --green: #17bf63;
+            --green-dim: rgba(23,191,99,0.12);
+            --purple: #7856ff;
+            --purple-dim: rgba(120,86,255,0.12);
+            --orange: #f5a623;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; line-height: 1.6; }
+
+        nav { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 20px; }
+        nav .nav-inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; height: 52px; gap: 24px; }
+        nav .nav-brand { font-weight: 700; color: #fff; text-decoration: none; font-size: 15px; }
+        nav .nav-brand span { color: var(--blue); }
+        nav a { color: var(--text-dim); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+        nav a:hover { color: #fff; }
+        nav a.active { color: var(--blue); }
+
+        .container { max-width: 760px; margin: 0 auto; padding: 40px 20px 80px; }
+        h1 { font-size: 28px; color: #fff; margin-bottom: 8px; }
+        .subtitle { color: var(--text-dim); margin-bottom: 40px; font-size: 15px; }
+        .card { background: var(--card); border-radius: 12px; padding: 28px; margin-bottom: 20px; }
+        .card h2 { font-size: 17px; color: #fff; margin-bottom: 12px; font-weight: 600; }
+        .card h3 { font-size: 14px; color: var(--blue); margin-bottom: 8px; margin-top: 16px; font-weight: 600; }
+        .card p { color: var(--text-dim); font-size: 14px; margin-bottom: 12px; }
+        .card ul, .card ol { color: var(--text-dim); font-size: 14px; margin-left: 20px; margin-bottom: 12px; }
+        .card li { margin-bottom: 6px; }
+        .card strong { color: var(--text); }
+        .card code { background: var(--input); padding: 2px 6px; border-radius: 4px; font-size: 13px; color: var(--blue); font-family: 'SF Mono', 'Fira Code', monospace; }
+        .card .note { background: var(--blue-dim); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--blue); margin-top: 12px; }
+        .card .note strong { color: #fff; }
+        .card .warn { background: rgba(245,166,35,0.12); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--orange); margin-top: 12px; }
+        .card .good { background: var(--green-dim); border-radius: 8px; padding: 12px 16px; font-size: 13px; color: var(--green); margin-top: 12px; }
+
+        .cta-btn { display: inline-block; padding: 12px 28px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; text-decoration: none; transition: background 0.15s; margin-top: 16px; }
+        .cta-btn:hover { background: #1a91da; }
+
+        .step-grid { display: grid; grid-template-columns: 40px 1fr; gap: 0 16px; margin: 16px 0; }
+        .step-num { width: 32px; height: 32px; border-radius: 8px; background: var(--blue-dim); color: var(--blue); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+        .step-content { padding-bottom: 16px; border-left: 2px solid var(--border); margin-left: 16px; padding-left: 20px; }
+        .step-content:last-child { border-left: none; }
+        .step-title { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 4px; }
+        .step-desc { font-size: 13px; color: var(--text-dim); }
+
+        table.info-table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+        table.info-table th { text-align: left; padding: 8px 12px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); }
+        table.info-table td { padding: 8px 12px; border-bottom: 1px solid rgba(56,68,77,0.4); color: var(--text-dim); }
+        table.info-table td:first-child { color: #fff; font-weight: 500; }
+
+        footer { text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px; }
+        footer a { color: var(--text-dim); text-decoration: none; }
+        footer a:hover { color: #fff; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="nav-brand"><span>ETH</span> Rewards Report</a>
+            <a href="/info" class="active">How It Works</a>
+            <a href="/terms">Terms</a>
+            <a href="/privacy">Privacy</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <h1>How It Works</h1>
+        <p class="subtitle">What you need, how to use it, and how your rewards are calculated</p>
+
+        <!-- What you need -->
+        <div class="card">
+            <h2>What You Need</h2>
+            <p>To generate a report, you need just two things:</p>
+            <ol>
+                <li><strong>Your withdrawal address or validator index(es)</strong> &mdash; this identifies your validator(s) on the Ethereum network. You can find your validator index on <a href="https://beaconcha.in" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">beaconcha.in</a> by searching for your address.</li>
+                <li><strong>A free Etherscan API key</strong> &mdash; needed to fetch your transaction data. Get one at <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">etherscan.io/apis</a> (takes 30 seconds, free tier is sufficient).</li>
+            </ol>
+
+            <h3>What to enter in the form</h3>
+            <table class="info-table">
+                <thead>
+                    <tr><th>Field</th><th>What to enter</th><th>Example</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Withdrawal address</td>
+                        <td>The address that receives your CL reward sweeps</td>
+                        <td><code>0xAbC1...dEf4</code></td>
+                    </tr>
+                    <tr>
+                        <td>Validator index</td>
+                        <td>Your validator number (single or comma-separated)</td>
+                        <td><code>123456</code> or <code>123456, 123457</code></td>
+                    </tr>
+                    <tr>
+                        <td>Fee recipient <span style="color:var(--text-muted)">(optional)</span></td>
+                        <td>Only needed if your EL rewards go to a <em>different</em> address than your withdrawal address</td>
+                        <td><code>0x9876...5432</code></td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="note">
+                <strong>Tip:</strong> If you enter a withdrawal address, the tool will find all withdrawals and block rewards for that address. If you enter validator index(es), it will resolve them to your withdrawal address automatically.
+            </div>
+        </div>
+
+        <!-- Withdrawal vs fee recipient -->
+        <div class="card">
+            <h2>Withdrawal Address vs Fee Recipient</h2>
+            <p>Ethereum validators have two addresses that can receive rewards:</p>
+            <ul>
+                <li><strong>Withdrawal address</strong> &mdash; set in your validator's withdrawal credentials. Receives consensus layer (CL) reward sweeps automatically every ~5 days.</li>
+                <li><strong>Fee recipient address</strong> &mdash; set in your validator client configuration. Receives execution layer (EL) rewards: priority fees and MEV payments when your validator proposes a block.</li>
+            </ul>
+            <p>For most solo stakers, these are the <strong>same address</strong>. In that case, you only need to enter the withdrawal address and can leave the fee recipient field empty.</p>
+            <p>However, if you use a <strong>different address</strong> as your fee recipient (for example, a hot wallet for immediate access to EL rewards), you should enter it in the optional fee recipient field so the tool can find those rewards too.</p>
+
+            <div class="warn">
+                <strong>Common case:</strong> If you run multiple validators but one has a different withdrawal address while sharing the same fee recipient, you can enter the shared fee recipient address to capture all EL rewards in one report.
+            </div>
+        </div>
+
+        <!-- Overview -->
+        <div class="card">
+            <h2>What the Tool Does</h2>
+            <p>The tool tracks two types of staking income:</p>
+            <ul>
+                <li><strong>Consensus layer (CL) withdrawals</strong> &mdash; periodic reward sweeps from the beacon chain to your withdrawal address</li>
+                <li><strong>Execution layer (EL) rewards</strong> &mdash; block proposal tips and MEV payments received at your fee recipient address</li>
+            </ul>
+            <p>Each reward event is matched to the historical ETH price at the time it occurred, giving you an accurate fiat value for tax reporting.</p>
+        </div>
+
+        <!-- How it works step by step -->
+        <div class="card">
+            <h2>Step by Step</h2>
+            <div class="step-grid">
+                <div class="step-num">1</div>
+                <div class="step-content">
+                    <div class="step-title">Resolve validators</div>
+                    <div class="step-desc">Your validator index, public key, or withdrawal address is resolved via the Beacon Chain API to identify which validators to track and their withdrawal address.</div>
+                </div>
+                <div class="step-num">2</div>
+                <div class="step-content">
+                    <div class="step-title">Fetch CL withdrawals</div>
+                    <div class="step-desc">All beacon chain withdrawal events are fetched from Etherscan for your <strong>withdrawal address</strong>. For 0x01 (distributing) validators, this includes the automatic reward sweeps that happen roughly every 5 days.</div>
+                </div>
+                <div class="step-num">3</div>
+                <div class="step-content">
+                    <div class="step-title">Fetch EL rewards</div>
+                    <div class="step-desc">Block proposals are fetched from Etherscan for your <strong>fee recipient address</strong> (or withdrawal address if no separate fee recipient is set). Detected via direct block rewards and MEV payments from known builder addresses.</div>
+                </div>
+                <div class="step-num">4</div>
+                <div class="step-content">
+                    <div class="step-title">Price matching</div>
+                    <div class="step-desc">Historical ETH prices are fetched at hourly resolution from CryptoCompare. Each reward event is matched to the closest hourly price, giving you a fiat value accurate to within ~30 minutes.</div>
+                </div>
+                <div class="step-num">5</div>
+                <div class="step-content">
+                    <div class="step-title">Report generation</div>
+                    <div class="step-desc">All events are compiled into a report with monthly breakdowns, totals, and per-validator statistics. You can view the summary on screen or download as Excel (.xlsx) or CSV.</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 0x01 vs 0x02 -->
+        <div class="card">
+            <h2>Validator Types</h2>
+
+            <h3>0x01 Distributing Validators</h3>
+            <p>The original withdrawal credential type. Max effective balance is 32 ETH. Any balance above 32 ETH is automatically swept to your withdrawal address roughly every 5 days. <strong>All withdrawals are income.</strong></p>
+
+            <h3>0x02 Compounding Validators</h3>
+            <p>Introduced with the Pectra upgrade (May 2025). Rewards compound in the validator balance up to 2048 ETH effective balance. The tool automatically detects 0x02 validators and classifies withdrawals into three categories:</p>
+            <ul>
+                <li><strong>Skimming (income)</strong> &mdash; automatic sweeps of balance exceeding the 2048 ETH cap. These happen automatically and are taxable income, similar to 0x01 validator sweeps.</li>
+                <li><strong>User-requested (not income)</strong> &mdash; you manually requested a partial withdrawal by sending a transaction to the EIP-7002 system contract. This is you taking out your own principal/accumulated rewards &mdash; the tool treats it as return of capital, not new income.</li>
+                <li><strong>Consolidation transfers (not income)</strong> &mdash; when you merge validators via EIP-7251, balance moves from a source validator to a target validator. The outgoing "withdrawal" from the source is just an internal transfer &mdash; no new ETH was earned.</li>
+            </ul>
+        </div>
+
+        <!-- EL rewards detail -->
+        <div class="card">
+            <h2>Execution Layer Rewards</h2>
+            <p>When your validator proposes a block, it earns execution layer rewards:</p>
+
+            <h3>Local Block Rewards (Priority Fees)</h3>
+            <p>When your validator builds its own block, the transaction priority fees are paid directly to your fee recipient address.</p>
+
+            <h3>MEV Payments</h3>
+            <p>Most validators use <strong>MEV-boost</strong> to outsource block building to specialized builders for higher rewards. The builder sends a lump-sum payment to your fee recipient address. The tool detects these by:</p>
+            <ol>
+                <li>Checking the sender against a list of ~40 known builder addresses (instant)</li>
+                <li>For unknown senders: looking up the block's fee recipient to verify the payment came from whoever built the block (requires an extra API call per candidate)</li>
+            </ol>
+        </div>
+
+        <!-- Price data -->
+        <div class="card">
+            <h2>Price Data</h2>
+            <p>Historical ETH prices are sourced from CryptoCompare at <strong>hourly resolution</strong>. Each reward event is matched to the closest hourly price point.</p>
+            <p>Prices are cached locally after the first fetch, so subsequent reports for the same period load instantly.</p>
+            <div class="note">
+                <strong>Note:</strong> Prices represent a volume-weighted average across major exchanges. Small differences compared to other tools are normal due to different price sources and time resolution.
+            </div>
+        </div>
+
+        <!-- Methodology -->
+        <div class="card">
+            <h2>Methodology: Withdrawal-Based Reporting</h2>
+            <p>This tool uses a <strong>withdrawal-based</strong> (cash-basis) approach: income is reported when ETH arrives at your execution layer address, not when it accrues on the beacon chain.</p>
+
+            <table class="info-table">
+                <thead>
+                    <tr><th>Approach</th><th>When income is reported</th><th>Used by</th></tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Withdrawal-based (this tool)</td>
+                        <td>When ETH is swept to your address</td>
+                        <td>Cash-basis accounting</td>
+                    </tr>
+                    <tr>
+                        <td>Accrual-based</td>
+                        <td>When rewards accumulate on beacon chain</td>
+                        <td>Some jurisdictions require this</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <div class="warn">
+                <strong>Important:</strong> This can cause small differences at month boundaries compared to accrual-based tools. The total over a longer period will converge, but individual months may differ by the amount of rewards that haven't been swept yet at month-end.
+            </div>
+        </div>
+
+        <!-- Data sources -->
+        <div class="card">
+            <h2>Data Sources</h2>
+            <table class="info-table">
+                <thead>
+                    <tr><th>Data</th><th>Source</th><th>API Key Required</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>Validator info</td><td>Beacon Chain API (PublicNode)</td><td>No</td></tr>
+                    <tr><td>CL withdrawals</td><td>Etherscan API v2</td><td>Yes (free)</td></tr>
+                    <tr><td>EL rewards &amp; MEV</td><td>Etherscan API v2</td><td>Yes (free)</td></tr>
+                    <tr><td>ETH prices</td><td>CryptoCompare API</td><td>No (optional)</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div style="text-align:center">
+            <a href="/" class="cta-btn">Generate Your Report</a>
+        </div>
+    </div>
+
+    <footer>
+        <a href="/">Back to Report Generator</a>
+    </footer>
+</body>
+</html>

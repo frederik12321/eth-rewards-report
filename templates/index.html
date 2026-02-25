@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ETH Rewards Report</title>
+    <style nonce="{{ request.csp_nonce }}">
+        :root {
+            --bg: #0f1419;
+            --card: #192734;
+            --card-alt: #1c2e3f;
+            --input: #253341;
+            --border: #38444d;
+            --text: #e1e8ed;
+            --text-dim: #8899a6;
+            --text-muted: #657786;
+            --blue: #1da1f2;
+            --blue-dim: rgba(29,161,242,0.12);
+            --green: #17bf63;
+            --green-dim: rgba(23,191,99,0.12);
+            --red: #e0245e;
+            --red-dim: rgba(224,36,94,0.12);
+            --purple: #7856ff;
+            --purple-dim: rgba(120,86,255,0.12);
+            --orange: #f5a623;
+            --orange-dim: rgba(245,166,35,0.12);
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+        /* Nav */
+        nav { background: var(--card); border-bottom: 1px solid var(--border); padding: 0 20px; }
+        nav .nav-inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; height: 52px; gap: 24px; }
+        nav .nav-brand { font-weight: 700; color: #fff; text-decoration: none; font-size: 15px; }
+        nav .nav-brand span { color: var(--blue); }
+        nav a { color: var(--text-dim); text-decoration: none; font-size: 13px; transition: color 0.15s; }
+        nav a:hover { color: #fff; }
+
+        .container { max-width: 760px; margin: 0 auto; padding: 40px 20px; }
+        h1 { font-size: 24px; margin-bottom: 8px; color: #fff; }
+        .subtitle { color: var(--text-dim); margin-bottom: 32px; font-size: 14px; }
+        .card { background: var(--card); border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+        .card h2 { font-size: 14px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 16px; font-weight: 600; }
+        label { display: block; font-size: 13px; color: var(--text-dim); margin-bottom: 4px; }
+        input, select { width: 100%; padding: 10px 12px; background: var(--input); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 12px; }
+        input:focus, select:focus { outline: none; border-color: var(--blue); }
+        input[type="date"] { color-scheme: dark; }
+        .row { display: flex; gap: 12px; }
+        .row > div { flex: 1; }
+        .generate-btn { width: 100%; padding: 14px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: background 0.15s; }
+        .generate-btn:hover { background: #1a91da; }
+        .generate-btn:disabled { background: var(--border); cursor: not-allowed; }
+        .status { margin-top: 16px; padding: 12px 16px; border-radius: 8px; font-size: 14px; display: none; }
+        .status.loading { display: block; background: var(--blue-dim); color: var(--blue); }
+        .status.success { display: block; background: var(--green-dim); color: var(--green); }
+        .status.error { display: block; background: var(--red-dim); color: var(--red); }
+        .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--blue); border-top-color: transparent; border-radius: 50%; animation: spin 0.8s linear infinite; margin-right: 8px; vertical-align: middle; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .hint { font-size: 11px; color: var(--text-muted); margin-top: -8px; margin-bottom: 12px; }
+        .optional-tag { font-size: 10px; color: var(--text-muted); font-weight: 400; text-transform: none; letter-spacing: 0; }
+
+        /* Log box */
+        .log-box { display: none; margin-top: 12px; background: #0d1117; border: 1px solid var(--input); border-radius: 8px; padding: 12px; max-height: 180px; overflow-y: auto; font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 11px; line-height: 1.5; color: #6e7681; }
+        .log-box.visible { display: block; }
+        .log-box .log-line { white-space: pre-wrap; word-break: break-all; }
+        .log-box .log-line.highlight { color: #58a6ff; }
+        .log-box .log-line.success { color: #3fb950; }
+        .log-box .log-line.error { color: #f85149; }
+
+        /* ---- Ready state ---- */
+        .ready-actions { display: none; margin-top: 20px; }
+        .ready-actions.visible { display: block; }
+        .ready-card { background: linear-gradient(135deg, #162a3a 0%, #1a3352 50%, #192734 100%); border: 1px solid rgba(29,161,242,0.25); border-radius: 16px; padding: 32px; text-align: center; }
+        .ready-card .ready-icon { font-size: 48px; margin-bottom: 12px; }
+        .ready-card .ready-title { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 6px; }
+        .ready-card .ready-subtitle { font-size: 14px; color: var(--text-dim); margin-bottom: 24px; }
+        .ready-buttons { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+        .btn-view { padding: 12px 28px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+        .btn-view:hover { background: #1a91da; }
+        .btn-download { padding: 12px 28px; background: var(--green); color: #fff; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; transition: background 0.15s; }
+        .btn-download:hover { background: #14a857; }
+
+        /* ---- Results ---- */
+        #resultsSection { display: none; margin-top: 32px; }
+        #resultsSection.visible { display: block; }
+
+        .hero-total { background: linear-gradient(135deg, #162a3a 0%, #1a3352 50%, #192734 100%); border: 1px solid rgba(29,161,242,0.25); border-radius: 16px; padding: 32px; text-align: center; margin-bottom: 24px; position: relative; overflow: hidden; }
+        .hero-total::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle at 50% 50%, rgba(29,161,242,0.06) 0%, transparent 60%); }
+        .hero-label { font-size: 12px; text-transform: uppercase; letter-spacing: 2px; color: var(--text-muted); margin-bottom: 8px; position: relative; }
+        .hero-eth { font-size: 42px; font-weight: 800; color: #fff; letter-spacing: -1px; position: relative; }
+        .hero-eth .unit { font-size: 20px; font-weight: 400; color: var(--text-dim); margin-left: 4px; }
+        .hero-fiat { font-size: 18px; color: var(--blue); margin-top: 4px; position: relative; }
+        .hero-meta { font-size: 12px; color: var(--text-muted); margin-top: 12px; position: relative; }
+
+        .stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+        .stat-card { background: var(--card); border-radius: 12px; padding: 20px; }
+        .stat-card .stat-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 12px; }
+        .stat-card.withdrawals .stat-icon { background: var(--blue-dim); }
+        .stat-card.rewards .stat-icon { background: var(--purple-dim); }
+        .stat-card.principal .stat-icon { background: var(--orange-dim); }
+        .stat-card .stat-title { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 6px; }
+        .stat-card .stat-eth { font-size: 22px; font-weight: 700; color: #fff; }
+        .stat-card .stat-fiat { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+
+        .chart-container { margin-bottom: 8px; }
+        .chart-bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+        .chart-label { width: 60px; font-size: 12px; color: var(--text-muted); text-align: right; flex-shrink: 0; font-family: 'SF Mono', monospace; }
+        .chart-bar-bg { flex: 1; height: 24px; background: var(--input); border-radius: 4px; position: relative; overflow: hidden; }
+        .chart-bar-fill { height: 100%; border-radius: 4px; display: flex; transition: width 0.6s ease; }
+        .chart-bar-w { background: var(--blue); }
+        .chart-bar-br { background: var(--purple); }
+        .chart-bar-value { font-size: 11px; color: var(--text-dim); width: 70px; text-align: right; flex-shrink: 0; font-family: 'SF Mono', monospace; }
+        .chart-legend { display: flex; gap: 16px; margin-top: 8px; margin-bottom: 16px; justify-content: center; }
+        .chart-legend-item { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
+        .chart-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+
+        .monthly-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .monthly-table th { text-align: left; padding: 10px 12px; color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border); font-weight: 600; }
+        .monthly-table td { padding: 10px 12px; border-bottom: 1px solid rgba(56,68,77,0.4); }
+        .monthly-table tr:last-child td { border-bottom: none; }
+        .monthly-table .num { text-align: right; font-family: 'SF Mono', monospace; font-size: 12px; }
+        .monthly-table .month-label { color: var(--text); font-weight: 500; }
+        .monthly-table tfoot td { font-weight: 700; border-top: 2px solid var(--border); color: #fff; padding-top: 12px; }
+
+        .val-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+        .val-card { background: var(--input); border-radius: 10px; padding: 16px; display: flex; align-items: center; gap: 16px; }
+        .val-card .val-left { flex-shrink: 0; }
+        .val-card .val-index-circle { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; font-family: 'SF Mono', monospace; }
+        .val-card .val-index-circle.distributing { background: var(--blue-dim); color: var(--blue); }
+        .val-card .val-index-circle.compounding { background: var(--purple-dim); color: var(--purple); }
+        .val-card .val-mid { flex: 1; min-width: 0; }
+        .val-card .val-name { font-size: 14px; font-weight: 600; color: #fff; }
+        .val-card .val-meta { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+        .val-badge { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+        .val-badge.distributing { background: var(--blue-dim); color: var(--blue); }
+        .val-badge.compounding { background: var(--purple-dim); color: var(--purple); }
+        .val-badge.active { background: var(--green-dim); color: var(--green); }
+        .val-card .val-right { text-align: right; flex-shrink: 0; }
+        .val-card .val-balance { font-size: 15px; font-weight: 700; color: #fff; font-family: 'SF Mono', monospace; }
+        .val-card .val-income { font-size: 12px; color: var(--green); margin-top: 2px; }
+
+        .val-totals { display: flex; justify-content: space-around; background: var(--input); border-radius: 10px; padding: 16px; margin-top: 10px; }
+        .val-totals .vt-item { text-align: center; }
+        .val-totals .vt-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 4px; }
+        .val-totals .vt-value { font-size: 16px; font-weight: 700; color: #fff; font-family: 'SF Mono', monospace; }
+
+        .download-bar { background: var(--card); border-radius: 12px; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; margin-top: 24px; border: 1px solid var(--border); }
+        .download-bar .dl-info { font-size: 14px; color: var(--text-dim); }
+        .download-bar .dl-filename { color: #fff; font-weight: 600; }
+        .dl-btn { padding: 10px 24px; background: var(--green); color: #fff; border: none; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; text-decoration: none; display: inline-block; transition: background 0.15s; }
+        .dl-btn:hover { background: #14a857; }
+
+        .back-link { display: inline-flex; align-items: center; gap: 6px; color: var(--text-dim); font-size: 13px; cursor: pointer; padding: 8px 0; margin-bottom: 16px; background: none; border: none; }
+        .back-link:hover { color: #fff; }
+
+        footer { text-align: center; padding: 24px 20px; color: var(--text-muted); font-size: 11px; margin-top: 40px; border-top: 1px solid var(--border); }
+        footer a { color: var(--text-dim); text-decoration: none; margin: 0 8px; }
+        footer a:hover { color: #fff; }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-inner">
+            <a href="/" class="nav-brand"><span>ETH</span> Rewards Report</a>
+            <a href="/info">How It Works</a>
+            <a href="/terms">Terms</a>
+            <a href="/privacy">Privacy</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <!-- ---- Form Section ---- -->
+        <div id="formSection">
+            <h1>ETH Rewards Report</h1>
+            <p class="subtitle">Generate tax reports for your ETH staking rewards &mdash; consensus withdrawals &amp; execution rewards priced in your local currency</p>
+
+            <form id="reportForm">
+                <div class="card">
+                    <h2>Validator / Address</h2>
+                    <label>Withdrawal address, validator index(es), or public key</label>
+                    <input type="text" name="validator_or_address" maxlength="200" placeholder="0x... address, validator index, comma-separated indices, or public key" required autocomplete="off" spellcheck="false">
+                    <p class="hint">This is where your consensus layer (CL) rewards are withdrawn to</p>
+
+                    <label>Fee recipient address <span class="optional-tag">(optional)</span></label>
+                    <input type="text" name="fee_recipient" maxlength="42" pattern="^(0x[a-fA-F0-9]{40})?$" placeholder="0x... (only if different from withdrawal address)" autocomplete="off" spellcheck="false">
+                    <p class="hint">Only needed if your execution layer (EL) rewards go to a different address than your withdrawal address</p>
+                </div>
+
+                <div class="card">
+                    <h2>Date Range</h2>
+                    <div class="row">
+                        <div><label>From</label><input type="date" name="date_from" required></div>
+                        <div><label>To</label><input type="date" name="date_to" required></div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h2>Settings</h2>
+                    <div class="row">
+                        <div>
+                            <label>Currency</label>
+                            <select name="currency">
+                                <option value="EUR">EUR</option><option value="USD">USD</option><option value="GBP">GBP</option>
+                                <option value="CHF">CHF</option><option value="CAD">CAD</option><option value="AUD">AUD</option>
+                                <option value="JPY">JPY</option><option value="SEK">SEK</option><option value="NOK">NOK</option>
+                                <option value="DKK">DKK</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label>Format</label>
+                            <select name="output_format">
+                                <option value="xlsx">Excel (.xlsx)</option><option value="csv">CSV (.csv)</option><option value="both">Both</option>
+                            </select>
+                        </div>
+                    </div>
+                    <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
+                        <input type="checkbox" name="auto_download" style="width:auto;margin:0;accent-color:var(--blue)">
+                        <span>Download file automatically when ready</span>
+                    </label>
+                </div>
+
+                <div class="card">
+                    <h2>API Keys</h2>
+                    <label>Etherscan API Key</label>
+                    <input type="password" name="etherscan_api_key" maxlength="40" pattern="^[a-zA-Z0-9]{34}$" placeholder="Required - get free at etherscan.io/apis" autocomplete="off">
+                    <p class="hint">Free tier: 5 calls/sec, unlimited monthly. <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+                </div>
+
+                <button type="submit" class="generate-btn" id="generateBtn">Generate Report</button>
+                <div id="status" class="status"></div>
+                <div id="logBox" class="log-box"></div>
+            </form>
+
+            <div id="readyActions" class="ready-actions">
+                <div class="ready-card">
+                    <div class="ready-icon">&#x2705;</div>
+                    <div class="ready-title">Report Ready</div>
+                    <div class="ready-subtitle" id="readySummaryText"></div>
+                    <div class="ready-buttons">
+                        <button class="btn-view" id="viewReportBtn">View Report</button>
+                        <a class="btn-download" id="downloadBtn" href="#" download="">Download File</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ---- Results Section ---- -->
+        <div id="resultsSection"></div>
+    </div>
+
+    <footer>
+        <a href="/info">How It Works</a> &middot;
+        <a href="/terms">Terms of Service</a> &middot;
+        <a href="/privacy">Privacy Policy</a> &middot;
+        <span>MIT License</span>
+    </footer>
+
+    <script nonce="{{ request.csp_nonce }}">
+        const STORAGE_KEY = 'eth_rewards_report_config';
+        const SENSITIVE_KEY = 'eth_rewards_report_keys';
+
+        let currentSummary = null;
+        let currentJobId = null;
+        let currentFilename = null;
+
+        // --- XSS protection: escape all user/server strings before innerHTML ---
+        function esc(s) {
+            const d = document.createElement('div');
+            d.textContent = String(s);
+            return d.innerHTML;
+        }
+
+        function saveToStorage() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify({
+                date_from: document.querySelector('[name="date_from"]').value,
+                date_to: document.querySelector('[name="date_to"]').value,
+                currency: document.querySelector('[name="currency"]').value,
+                output_format: document.querySelector('[name="output_format"]').value,
+                auto_download: document.querySelector('[name="auto_download"]').checked,
+            }));
+            // Only store non-sensitive data in sessionStorage (API key intentionally excluded)
+            sessionStorage.setItem(SENSITIVE_KEY, JSON.stringify({
+                validator_or_address: document.querySelector('[name="validator_or_address"]').value,
+                fee_recipient: document.querySelector('[name="fee_recipient"]').value,
+            }));
+        }
+
+        function loadFromStorage() {
+            try {
+                const c = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+                if (c.date_from) document.querySelector('[name="date_from"]').value = c.date_from;
+                if (c.date_to) document.querySelector('[name="date_to"]').value = c.date_to;
+                if (c.currency) document.querySelector('[name="currency"]').value = c.currency;
+                if (c.output_format) document.querySelector('[name="output_format"]').value = c.output_format;
+                if (c.auto_download) document.querySelector('[name="auto_download"]').checked = c.auto_download;
+            } catch(e) {}
+            try {
+                const s = JSON.parse(sessionStorage.getItem(SENSITIVE_KEY) || '{}');
+                if (s.validator_or_address) document.querySelector('[name="validator_or_address"]').value = s.validator_or_address;
+                if (s.fee_recipient) document.querySelector('[name="fee_recipient"]').value = s.fee_recipient;
+            } catch(e) {}
+        }
+
+        function classifyLogLine(msg) {
+            const l = msg.toLowerCase();
+            if (l.includes('fetched') || l.includes('found') || l.includes('total')) return 'highlight';
+            if (l.includes('ready') || l.includes('done') || l.includes('saved')) return 'success';
+            if (l.includes('error') || l.includes('failed')) return 'error';
+            return '';
+        }
+        function appendLog(box, msg) {
+            const d = document.createElement('div');
+            d.className = 'log-line ' + classifyLogLine(msg);
+            d.textContent = msg;
+            box.appendChild(d);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function fE(v) { return v.toFixed(6); }
+        function fF(v, c) { return v.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + ' ' + c; }
+
+        function showResults() {
+            if (!currentSummary) return;
+            document.getElementById('formSection').style.display = 'none';
+            const s = document.getElementById('resultsSection');
+            s.innerHTML = '';
+            renderResults(currentSummary, currentJobId, currentFilename);
+            s.className = 'visible';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function backToForm() {
+            document.getElementById('resultsSection').className = '';
+            document.getElementById('resultsSection').innerHTML = '';
+            document.getElementById('formSection').style.display = '';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function renderResults(summary, jobId, filename) {
+            const c = esc(summary.currency);
+            const s = document.getElementById('resultsSection');
+            let h = '';
+
+            h += `<button class="back-link" data-action="back">&#x2190; Back to form</button>`;
+
+            // Hero
+            h += `<div class="hero-total">
+                <div class="hero-label">Total Staking Income</div>
+                <div class="hero-eth">${esc(fE(summary.total_income_eth))}<span class="unit">ETH</span></div>
+                <div class="hero-fiat">${esc(fF(summary.total_income_fiat, c))}</div>
+                <div class="hero-meta">${esc(summary.event_count)} events across ${esc(summary.months ? summary.months.length : 0)} months</div>
+            </div>`;
+
+            // Stat cards
+            h += '<div class="stats-row">';
+            h += `<div class="stat-card withdrawals"><div class="stat-icon">&#x2B07;</div><div class="stat-title">Consensus Withdrawals</div><div class="stat-eth">${esc(fE(summary.withdrawals_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.withdrawals_fiat, c))}</div></div>`;
+            h += `<div class="stat-card rewards"><div class="stat-icon">&#x26A1;</div><div class="stat-title">Execution Rewards</div><div class="stat-eth">${esc(fE(summary.block_rewards_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.block_rewards_fiat, c))}</div></div>`;
+            if (summary.principal_eth) {
+                h += `<div class="stat-card principal" style="grid-column:1/-1"><div class="stat-icon">&#x21A9;</div><div class="stat-title">Principal Withdrawals (not income)</div><div class="stat-eth">${esc(fE(summary.principal_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.principal_fiat, c))}</div></div>`;
+            }
+            h += '</div>';
+
+            // Monthly chart + table
+            if (summary.months && summary.months.length > 0) {
+                const maxEth = Math.max(...summary.months.map(m => m.total_eth)) || 1;
+                h += '<div class="card"><h2>Monthly Breakdown</h2>';
+                h += '<div class="chart-container">';
+                for (const m of summary.months) {
+                    const pct = ((m.total_eth / maxEth) * 100).toFixed(1);
+                    h += `<div class="chart-bar-row">
+                        <div class="chart-label">${esc(m.month.substring(2))}</div>
+                        <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${pct}%"><div class="chart-bar-w" style="flex:${m.withdrawals_eth}"></div><div class="chart-bar-br" style="flex:${m.block_rewards_eth || 0.001}"></div></div></div>
+                        <div class="chart-bar-value">${esc(m.total_eth.toFixed(4))}</div>
+                    </div>`;
+                }
+                h += '</div>';
+                h += '<div class="chart-legend"><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--blue)"></div>Withdrawals</div><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--purple)"></div>Execution Rewards</div></div>';
+
+                const hasPrincipal = !!summary.principal_eth;
+                h += `<table class="monthly-table"><thead><tr><th>Month</th><th class="num">Withdrawals</th><th class="num">Block Rewards</th>`;
+                if (hasPrincipal) h += '<th class="num">Principal</th>';
+                h += `<th class="num">Total Income</th><th class="num">Avg ETH/${c}</th><th class="num">Value ${c}</th></tr></thead><tbody>`;
+                for (const m of summary.months) {
+                    h += `<tr><td class="month-label">${esc(m.month)}</td><td class="num">${esc(m.withdrawals_eth.toFixed(6))}</td><td class="num">${esc(m.block_rewards_eth.toFixed(6))}</td>`;
+                    if (hasPrincipal) h += `<td class="num">${esc((m.principal_eth||0).toFixed(6))}</td>`;
+                    h += `<td class="num" style="color:#fff;font-weight:600">${esc(m.total_eth.toFixed(6))}</td>`;
+                    h += `<td class="num" style="color:var(--text-muted)">${esc(m.avg_price.toFixed(2))}</td>`;
+                    h += `<td class="num">${esc(fF(m.total_fiat, ''))}</td></tr>`;
+                }
+                const wavg = summary.total_income_eth > 0 ? (summary.total_income_fiat / summary.total_income_eth) : 0;
+                h += `</tbody><tfoot><tr><td>Total</td><td class="num">${esc(fE(summary.withdrawals_eth))}</td><td class="num">${esc(fE(summary.block_rewards_eth))}</td>`;
+                if (hasPrincipal) h += `<td class="num">${esc(fE(summary.principal_eth))}</td>`;
+                h += `<td class="num">${esc(fE(summary.total_income_eth))}</td><td class="num">${esc(wavg.toFixed(2))}</td><td class="num">${esc(fF(summary.total_income_fiat, ''))}</td></tr></tfoot></table>`;
+                h += '</div>';
+            }
+
+            // Validators
+            if (summary.validators && summary.validators.length > 0) {
+                h += '<div class="card"><h2>Validators</h2><div class="val-grid">';
+                let totBal = 0, totIncome = 0;
+                for (const v of summary.validators) {
+                    const cls = v.type === 'Compounding' ? 'compounding' : 'distributing';
+                    const statusCls = (v.status || '').includes('active') ? 'active' : '';
+                    h += `<div class="val-card">
+                        <div class="val-left"><div class="val-index-circle ${cls}">${esc(v.index)}</div></div>
+                        <div class="val-mid">
+                            <div class="val-meta"><span class="val-badge ${cls}">${esc(v.type)}</span> <span class="val-badge ${statusCls}">${esc(v.status)}</span></div>
+                        </div>
+                        <div class="val-right">
+                            <div class="val-balance">${esc(v.balance.toFixed(4))} ETH</div>
+                            <div class="val-income">+${esc(v.withdrawn_income.toFixed(4))} withdrawn</div>
+                        </div>
+                    </div>`;
+                    totBal += v.balance;
+                    totIncome += v.withdrawn_income;
+                }
+                h += '</div>';
+                h += `<div class="val-totals">
+                    <div class="vt-item"><div class="vt-label">Validators</div><div class="vt-value">${esc(summary.validators.length)}</div></div>
+                    <div class="vt-item"><div class="vt-label">Total Balance</div><div class="vt-value">${esc(totBal.toFixed(4))} ETH</div></div>
+                    <div class="vt-item"><div class="vt-label">Total Withdrawn</div><div class="vt-value">${esc(totIncome.toFixed(4))} ETH</div></div>
+                </div>`;
+                h += '</div>';
+            }
+
+            // Download bar — jobId is a hex string, filename is sanitized server-side
+            const safeJobId = esc(jobId);
+            const safeFilename = esc(filename);
+            h += `<div class="download-bar">
+                <div class="dl-info"><span class="dl-filename">${safeFilename}</span></div>
+                <a class="dl-btn" href="/download/${safeJobId}" download="${safeFilename}">Download Report</a>
+            </div>`;
+
+            s.innerHTML = h;
+        }
+
+        loadFromStorage();
+        document.getElementById('reportForm').addEventListener('input', saveToStorage);
+        document.getElementById('reportForm').addEventListener('change', saveToStorage);
+
+        document.getElementById('reportForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('generateBtn');
+            const status = document.getElementById('status');
+            const logBox = document.getElementById('logBox');
+            const readyActions = document.getElementById('readyActions');
+
+            btn.disabled = true;
+            status.className = 'status loading';
+            status.innerHTML = '<span class="spinner"></span>Starting report generation...';
+            logBox.innerHTML = '';
+            logBox.className = 'log-box visible';
+            readyActions.className = 'ready-actions';
+            document.getElementById('resultsSection').className = '';
+            document.getElementById('resultsSection').innerHTML = '';
+            currentSummary = null;
+            currentJobId = null;
+            currentFilename = null;
+
+            saveToStorage();
+            const formData = new FormData(this);
+
+            const payload = {
+                validator_or_address: formData.get('validator_or_address'),
+                fee_recipient: formData.get('fee_recipient') || '',
+                date_from: formData.get('date_from'),
+                date_to: formData.get('date_to'),
+                currency: formData.get('currency'),
+                output_format: formData.get('output_format'),
+                etherscan_api_key: formData.get('etherscan_api_key'),
+            };
+
+            try {
+                const resp = await fetch('/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
+                const result = await resp.json();
+                if (!resp.ok) throw new Error(result.error || 'Generation failed');
+
+                const jobId = result.job_id;
+                status.innerHTML = '<span class="spinner"></span>Generating report...';
+
+                await new Promise((resolve, reject) => {
+                    const es = new EventSource(`/stream/${encodeURIComponent(jobId)}`);
+                    es.onmessage = function(event) {
+                        try {
+                            const d = JSON.parse(event.data);
+                            if (d.type === 'log') appendLog(logBox, d.message);
+                            else if (d.type === 'done') { es.close(); resolve({ filename: d.filename, summary: d.summary, jobId }); }
+                            else if (d.type === 'error') { es.close(); reject(new Error(d.message)); }
+                        } catch(pe) { appendLog(logBox, event.data); }
+                    };
+                    es.onerror = function() { es.close(); reject(new Error('Lost connection to server')); };
+                }).then(({ filename, summary, jobId }) => {
+                    status.className = 'status success';
+                    status.textContent = 'Report generated successfully!';
+
+                    currentSummary = summary;
+                    currentJobId = jobId;
+                    currentFilename = filename;
+
+                    const eth = summary ? summary.total_income_eth.toFixed(4) : '?';
+                    const fiat = summary ? fF(summary.total_income_fiat, summary.currency) : '';
+                    document.getElementById('readySummaryText').textContent = `${eth} ETH total income (${fiat})`;
+                    document.getElementById('downloadBtn').href = `/download/${encodeURIComponent(jobId)}`;
+                    document.getElementById('downloadBtn').setAttribute('download', filename);
+                    readyActions.className = 'ready-actions visible';
+                    readyActions.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                    // Auto-download if checkbox is checked
+                    if (document.querySelector('[name="auto_download"]').checked) {
+                        const a = document.createElement('a');
+                        a.href = `/download/${encodeURIComponent(jobId)}`;
+                        a.download = filename;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    }
+                });
+
+            } catch (err) {
+                status.className = 'status error';
+                status.textContent = err.message;
+            } finally {
+                btn.disabled = false;
+            }
+        });
+
+        // Event delegation for dynamically-created buttons (CSP: no inline onclick)
+        document.getElementById('viewReportBtn').addEventListener('click', showResults);
+        document.addEventListener('click', function(e) {
+            if (e.target.matches('[data-action="back"]')) backToForm();
+        });
+    </script>
+</body>
+</html>
