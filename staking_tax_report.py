@@ -673,10 +673,12 @@ class PriceCache:
 class CryptoCompareClient:
     BASE_URL = "https://min-api.cryptocompare.com/data/v2"
 
-    def __init__(self, currency: str = "EUR", cache_path: str = "price_cache.db", log_fn=None):
+    def __init__(self, currency: str = "EUR", cache_path: str = "price_cache.db", log_fn=None, api_key: str = ""):
         self.currency = currency.upper()
         self.log = log_fn or print
         self.session = requests.Session()
+        if api_key:
+            self.session.headers["authorization"] = f"Apikey {api_key}"
         self.cache = PriceCache(cache_path)
 
     def close(self):
