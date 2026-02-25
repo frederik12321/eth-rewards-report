@@ -106,6 +106,8 @@ class EtherscanClient:
     def __init__(self, api_key: str, log_fn=None):
         self.api_key = api_key
         self.log = log_fn or print
+        self._min_interval = 0.35  # max ~2.8 req/s — comfortable under 5/s free tier
+        self._last_call = 0.0
         self.session = requests.Session()
         # Increase connection pool for sustained API usage
         adapter = requests.adapters.HTTPAdapter(
@@ -115,11 +117,19 @@ class EtherscanClient:
         )
         self.session.mount("https://", adapter)
 
-    def _get(self, params: Dict, delay: float = 0.25) -> Dict:
+    def _throttle(self):
+        """Ensure minimum interval between API calls to stay under rate limit."""
+        elapsed = time.monotonic() - self._last_call
+        if elapsed < self._min_interval:
+            time.sleep(self._min_interval - elapsed)
+        self._last_call = time.monotonic()
+
+    def _get(self, params: Dict) -> Dict:
         params["chainid"] = 1
         params["apikey"] = self.api_key
         max_retries = 4
         for attempt in range(max_retries):
+            self._throttle()
             try:
                 resp = self.session.get(self.BASE_URL, params=params, timeout=30)
                 resp.raise_for_status()
@@ -135,7 +145,6 @@ class EtherscanClient:
                     else:
                         raise RuntimeError("Etherscan rate limit exceeded after retries")
 
-                time.sleep(delay)
                 return data
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
                 if attempt < max_retries - 1:
@@ -210,7 +219,7 @@ class EtherscanClient:
             "action": "eth_getBlockByNumber",
             "tag": hex(block_number),
             "boolean": "false",
-        }, delay=0.35)  # proxy calls need slightly more breathing room
+        })
         result = data.get("result", {})
         if not result:
             return ""
