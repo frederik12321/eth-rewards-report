@@ -2,8 +2,8 @@
 """Ethereum staking tax report generator.
 
 Uses Etherscan for withdrawal and block proposal history,
-and CryptoCompare for ETH price data.
-Generates Excel/CSV reports with monthly sheets + summary.
+fetches ETH price data from multiple sources, and generates
+Excel/CSV reports with monthly sheets + summary.
 """
 
 import argparse
@@ -673,9 +673,10 @@ class PriceCache:
 class CryptoCompareClient:
     BASE_URL = "https://min-api.cryptocompare.com/data/v2"
 
-    def __init__(self, currency: str = "EUR", cache_path: str = "price_cache.db", log_fn=None, api_key: str = "", coingecko_api_key: str = ""):
+    def __init__(self, currency: str = "EUR", cache_path: str = "price_cache.db", log_fn=None, api_key: str = "", coingecko_api_key: str = "", verbose_sources: bool = False):
         self.currency = currency.upper()
         self.log = log_fn or print
+        self._verbose = verbose_sources
         self.session = requests.Session()
         if api_key:
             self.session.headers["authorization"] = f"Apikey {api_key}"
@@ -707,7 +708,8 @@ class CryptoCompareClient:
                     rates[date_str] = Decimal(str(rate_dict[self.currency]))
             return rates
         except Exception as e:
-            self.log(f"    Frankfurter forex API failed: {e}")
+            if self._verbose:
+                self.log(f"    Frankfurter forex API failed: {e}")
             return {}
 
     def _fetch_range_defillama(self, start_ts: int, end_ts: int) -> List[Tuple[int, Decimal]]:
@@ -723,12 +725,14 @@ class CryptoCompareClient:
         if self.currency != "USD":
             start_date = _dt.utcfromtimestamp(start_ts).strftime("%Y-%m-%d")
             end_date = _dt.utcfromtimestamp(end_ts).strftime("%Y-%m-%d")
-            self.log(f"    Fetching USD/{self.currency} forex rates from ECB...")
+            if self._verbose:
+                self.log(f"    Fetching USD/{self.currency} forex rates from ECB...")
             forex_rates = self._fetch_forex_rates(start_date, end_date)
             if not forex_rates:
-                self.log(f"    No forex rates available for USD/{self.currency}")
+                self.log(f"    Could not fetch conversion rates for {self.currency}")
                 return []
-            self.log(f"    Got {len(forex_rates)} daily forex rates")
+            if self._verbose:
+                self.log(f"    Got {len(forex_rates)} daily forex rates")
 
         # Step 2: Fetch ETH/USD from DeFiLlama in chunks of 500 hours (API limit)
         fetched = []
@@ -761,10 +765,10 @@ class CryptoCompareClient:
                         requests.exceptions.HTTPError) as e:
                     if attempt < max_retries - 1:
                         wait = 2 ** (attempt + 1)
-                        self.log(f"    DeFiLlama request failed, retrying in {wait}s... ({e})")
+                        self.log(f"    Price request failed, retrying in {wait}s...")
                         time.sleep(wait)
                     else:
-                        self.log(f"    DeFiLlama failed after {max_retries} retries: {e}")
+                        self.log(f"    Price fetch failed after {max_retries} retries")
                         return fetched
 
             if data is None:
@@ -776,7 +780,7 @@ class CryptoCompareClient:
                 prices_data = coin_data.get("prices", [])
 
             if not prices_data:
-                self.log(f"    DeFiLlama returned no price data")
+                self.log(f"    No price data returned")
                 break
 
             for entry in prices_data:
@@ -801,7 +805,7 @@ class CryptoCompareClient:
 
             call_count += 1
             if call_count % 5 == 0:
-                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} DeFiLlama calls)...")
+                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} API calls)...")
 
             current_start = current_start + remaining_hours * 3600
             time.sleep(0.3)
@@ -847,14 +851,16 @@ class CryptoCompareClient:
                         requests.exceptions.HTTPError) as e:
                     if attempt < max_retries - 1:
                         wait = 2 ** (attempt + 1)
-                        self.log(f"    CoinGecko request failed, retrying in {wait}s... ({e})")
+                        msg = f"    CoinGecko request failed, retrying in {wait}s... ({e})" if self._verbose else f"    Price request failed, retrying in {wait}s..."
+                        self.log(msg)
                         time.sleep(wait)
                     else:
-                        self.log(f"    CoinGecko failed after {max_retries} retries: {e}")
+                        msg = f"    CoinGecko failed after {max_retries} retries: {e}" if self._verbose else f"    Price fetch failed after {max_retries} retries"
+                        self.log(msg)
                         return fetched
 
             if data is None or "prices" not in data:
-                self.log(f"    CoinGecko returned no price data")
+                self.log(f"    No price data returned")
                 break
 
             for ts_ms, price_val in data["prices"]:
@@ -865,7 +871,7 @@ class CryptoCompareClient:
 
             call_count += 1
             if call_count % 5 == 0:
-                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} CoinGecko calls)...")
+                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} API calls)...")
 
             current_start = chunk_end + 1
             time.sleep(1.5)  # CoinGecko free tier: ~30 req/min
@@ -904,14 +910,16 @@ class CryptoCompareClient:
                         requests.exceptions.HTTPError) as e:
                     if attempt < max_retries - 1:
                         wait = 2 ** (attempt + 1)
-                        self.log(f"    CryptoCompare request failed, retrying in {wait}s... ({e})")
+                        msg = f"    CryptoCompare request failed, retrying in {wait}s... ({e})" if self._verbose else f"    Price request failed, retrying in {wait}s..."
+                        self.log(msg)
                         time.sleep(wait)
                     else:
-                        self.log(f"    CryptoCompare failed after {max_retries} retries: {e}")
+                        msg = f"    CryptoCompare failed after {max_retries} retries: {e}" if self._verbose else f"    Price fetch failed after {max_retries} retries"
+                        self.log(msg)
                         return fetched  # Return what we have so far
 
             if data is None or data.get("Response") != "Success":
-                if data:
+                if data and self._verbose:
                     self.log(f"    CryptoCompare error: {data.get('Message')}")
                 break
 
@@ -949,32 +957,32 @@ class CryptoCompareClient:
         gaps = self.cache.find_gaps(self.currency, start_ts, end_ts)
 
         if not gaps:
-            self.log(f"  Loaded {len(cached)} price points from cache ({self.currency}, hourly)")
+            self.log(f"  Loaded {len(cached)} ETH/{self.currency} price points (hourly)")
             return cached
 
         if cached:
-            self.log(f"  Loaded {len(cached)} cached price points, fetching {len(gaps)} gap(s)...")
+            self.log(f"  Loaded {len(cached)} price points, fetching {len(gaps)} gap(s)...")
         else:
-            self.log(f"  No cached prices, fetching from CryptoCompare...")
+            self.log(f"  Fetching ETH/{self.currency} prices...")
 
         # Fetch missing ranges
         all_fetched = []
         for gap_start, gap_end in gaps:
             fetched = self._fetch_range(gap_start, gap_end)
             if not fetched:
-                # CryptoCompare doesn't support this pair — try DeFiLlama (no key needed)
-                self.log(f"  CryptoCompare has no data for ETH/{self.currency}, trying DeFiLlama...")
+                # Primary source has no data — try alternative sources
+                if self._verbose:
+                    self.log(f"  Primary source has no data for ETH/{self.currency}, trying alternatives...")
                 fetched = self._fetch_range_defillama(gap_start, gap_end)
             if not fetched and self.coingecko_api_key:
-                # Last resort — try CoinGecko (needs API key)
-                self.log(f"  Trying CoinGecko as last resort...")
                 fetched = self._fetch_range_coingecko(gap_start, gap_end)
             all_fetched.extend(fetched)
 
         # Store newly fetched prices in cache
         if all_fetched:
             self.cache.store(self.currency, all_fetched)
-            self.log(f"  Cached {len(all_fetched)} new price points to {self.cache.db_path}")
+            if self._verbose:
+                self.log(f"  Cached {len(all_fetched)} new price points")
 
         # Combine cached + fetched, deduplicate, sort
         combined = cached + all_fetched

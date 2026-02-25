@@ -461,6 +461,7 @@ def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, curren
             currency=currency, cache_path=_PRICE_CACHE_PATH, log_fn=log_fn,
             api_key=cryptocompare_api_key or _CRYPTOCOMPARE_API_KEY,
             coingecko_api_key=coingecko_api_key or _COINGECKO_API_KEY,
+            verbose_sources=bool(cryptocompare_api_key or coingecko_api_key),
         )
 
         log_fn(f"Fetching ETH/{currency} prices...")
