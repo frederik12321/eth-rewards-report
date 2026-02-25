@@ -686,6 +686,128 @@ class CryptoCompareClient:
         """Close the price cache database connection."""
         self.cache.close()
 
+    def _fetch_forex_rates(self, start_date: str, end_date: str) -> Dict[str, Decimal]:
+        """Fetch daily USD→target forex rates from Frankfurter (ECB data, no key needed).
+
+        Returns dict mapping 'YYYY-MM-DD' -> conversion rate.
+        """
+        if self.currency == "USD":
+            return {}
+        try:
+            resp = self.session.get(
+                f"https://api.frankfurter.dev/v1/{start_date}..{end_date}",
+                params={"base": "USD", "symbols": self.currency},
+                timeout=30,
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            rates = {}
+            for date_str, rate_dict in data.get("rates", {}).items():
+                if self.currency in rate_dict:
+                    rates[date_str] = Decimal(str(rate_dict[self.currency]))
+            return rates
+        except Exception as e:
+            self.log(f"    Frankfurter forex API failed: {e}")
+            return {}
+
+    def _fetch_range_defillama(self, start_ts: int, end_ts: int) -> List[Tuple[int, Decimal]]:
+        """Fallback: fetch ETH/USD from DeFiLlama and convert via ECB forex rates.
+
+        No API key needed. DeFiLlama returns hourly data, Frankfurter provides
+        daily USD→target conversion rates.
+        """
+        from datetime import datetime as _dt
+
+        # Step 1: Fetch forex rates if non-USD
+        forex_rates = {}
+        if self.currency != "USD":
+            start_date = _dt.utcfromtimestamp(start_ts).strftime("%Y-%m-%d")
+            end_date = _dt.utcfromtimestamp(end_ts).strftime("%Y-%m-%d")
+            self.log(f"    Fetching USD/{self.currency} forex rates from ECB...")
+            forex_rates = self._fetch_forex_rates(start_date, end_date)
+            if not forex_rates:
+                self.log(f"    No forex rates available for USD/{self.currency}")
+                return []
+            self.log(f"    Got {len(forex_rates)} daily forex rates")
+
+        # Step 2: Fetch ETH/USD from DeFiLlama in chunks of 500 hours (API limit)
+        fetched = []
+        chunk_hours = 500
+        current_start = start_ts
+        call_count = 0
+        max_retries = 3
+
+        while current_start < end_ts:
+            remaining_hours = min(chunk_hours, max(1, int((end_ts - current_start) / 3600)))
+
+            data = None
+            for attempt in range(max_retries):
+                try:
+                    resp = self.session.get(
+                        "https://coins.llama.fi/chart/coingecko:ethereum",
+                        params={
+                            "start": current_start,
+                            "span": remaining_hours,
+                            "period": "1h",
+                            "searchWidth": 600,
+                        },
+                        timeout=30,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except (requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout,
+                        requests.exceptions.HTTPError) as e:
+                    if attempt < max_retries - 1:
+                        wait = 2 ** (attempt + 1)
+                        self.log(f"    DeFiLlama request failed, retrying in {wait}s... ({e})")
+                        time.sleep(wait)
+                    else:
+                        self.log(f"    DeFiLlama failed after {max_retries} retries: {e}")
+                        return fetched
+
+            if data is None:
+                break
+
+            prices_data = []
+            coins = data.get("coins", {})
+            for coin_data in coins.values():
+                prices_data = coin_data.get("prices", [])
+
+            if not prices_data:
+                self.log(f"    DeFiLlama returned no price data")
+                break
+
+            for entry in prices_data:
+                ts = entry["timestamp"]
+                usd_price = Decimal(str(entry["price"]))
+                if start_ts <= ts <= end_ts and usd_price > 0:
+                    if self.currency == "USD":
+                        fetched.append((ts, usd_price))
+                    else:
+                        # Convert USD→target using nearest daily forex rate
+                        day_str = _dt.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+                        rate = forex_rates.get(day_str)
+                        if rate is None:
+                            # Find nearest available rate
+                            sorted_dates = sorted(forex_rates.keys())
+                            if sorted_dates:
+                                nearest = min(sorted_dates, key=lambda d: abs(
+                                    _dt.strptime(d, "%Y-%m-%d").timestamp() - ts))
+                                rate = forex_rates[nearest]
+                        if rate:
+                            fetched.append((ts, usd_price * rate))
+
+            call_count += 1
+            if call_count % 5 == 0:
+                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} DeFiLlama calls)...")
+
+            current_start = current_start + remaining_hours * 3600
+            time.sleep(0.3)
+
+        return fetched
+
     def _fetch_range_coingecko(self, start_ts: int, end_ts: int) -> List[Tuple[int, Decimal]]:
         """Fallback: fetch prices from CoinGecko for currencies CryptoCompare doesn't support.
 
@@ -840,8 +962,12 @@ class CryptoCompareClient:
         for gap_start, gap_end in gaps:
             fetched = self._fetch_range(gap_start, gap_end)
             if not fetched:
-                # CryptoCompare doesn't support this pair — fall back to CoinGecko
-                self.log(f"  CryptoCompare has no data for ETH/{self.currency}, trying CoinGecko...")
+                # CryptoCompare doesn't support this pair — try DeFiLlama (no key needed)
+                self.log(f"  CryptoCompare has no data for ETH/{self.currency}, trying DeFiLlama...")
+                fetched = self._fetch_range_defillama(gap_start, gap_end)
+            if not fetched and self.coingecko_api_key:
+                # Last resort — try CoinGecko (needs API key)
+                self.log(f"  Trying CoinGecko as last resort...")
                 fetched = self._fetch_range_coingecko(gap_start, gap_end)
             all_fetched.extend(fetched)
 
