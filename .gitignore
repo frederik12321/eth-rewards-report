@@ -4,5 +4,4 @@ reports/
 __pycache__/
 *.pyc
 .env
-price_cache.db
 stats.json

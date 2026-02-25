@@ -80,6 +80,15 @@ _PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db")
 _CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")
 _STATS_PATH = os.environ.get("STATS_PATH", os.path.join(os.path.dirname(__file__), "stats.json"))
 
+# Seed bundled price cache to volume on first deploy
+_BUNDLED_CACHE = os.path.join(os.path.dirname(__file__), "price_cache.db")
+if _PRICE_CACHE_PATH != _BUNDLED_CACHE and not os.path.exists(_PRICE_CACHE_PATH):
+    import shutil
+    if os.path.exists(_BUNDLED_CACHE):
+        os.makedirs(os.path.dirname(_PRICE_CACHE_PATH), exist_ok=True)
+        shutil.copy2(_BUNDLED_CACHE, _PRICE_CACHE_PATH)
+        logger.info("Seeded price cache from bundled file to %s", _PRICE_CACHE_PATH)
+
 # Rate limiter (in-memory for single-worker Railway deployment)
 limiter = Limiter(
     get_remote_address,
