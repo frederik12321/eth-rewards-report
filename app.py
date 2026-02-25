@@ -185,7 +185,9 @@ def _load_stats():
 def _save_stats():
     """Persist stats to disk atomically (safe for concurrent writes)."""
     try:
-        fd, tmp_path = tempfile.mkstemp(dir=os.path.dirname(_STATS_PATH) or ".", suffix=".tmp")
+        stats_dir = os.path.dirname(_STATS_PATH) or "."
+        os.makedirs(stats_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=stats_dir, suffix=".tmp")
         with os.fdopen(fd, "w") as f:
             json.dump(_stats, f)
         os.replace(tmp_path, _STATS_PATH)
