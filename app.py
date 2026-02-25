@@ -399,8 +399,6 @@ def generate():
             return jsonify({"error": "Start date must be before end date"}), 400
         if start_dt < BEACON_GENESIS:
             return jsonify({"error": "Start date cannot be before beacon chain genesis (Dec 1, 2020)"}), 400
-        if (end_dt - start_dt).days > 1095:
-            return jsonify({"error": "Date range cannot exceed 3 years"}), 400
 
         # Concurrency control: reject if at capacity
         if not _job_semaphore.acquire(blocking=False):
