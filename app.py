@@ -78,6 +78,7 @@ app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB max request size
 _MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
 _PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db")
 _CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")
+_COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 _STATS_PATH = os.environ.get("STATS_PATH", os.path.join(os.path.dirname(__file__), "stats.json"))
 
 # Seed bundled price cache to volume on first deploy
@@ -454,7 +455,7 @@ def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, curren
 
         # Init clients with log callback
         etherscan = EtherscanClient(etherscan_api_key, log_fn=log_fn)
-        price_client = CryptoCompareClient(currency=currency, cache_path=_PRICE_CACHE_PATH, log_fn=log_fn, api_key=_CRYPTOCOMPARE_API_KEY)
+        price_client = CryptoCompareClient(currency=currency, cache_path=_PRICE_CACHE_PATH, log_fn=log_fn, api_key=_CRYPTOCOMPARE_API_KEY, coingecko_api_key=_COINGECKO_API_KEY)
 
         log_fn(f"Fetching ETH/{currency} prices...")
         prices = price_client.get_prices(start_ts, end_ts)

@@ -673,17 +673,82 @@ class PriceCache:
 class CryptoCompareClient:
     BASE_URL = "https://min-api.cryptocompare.com/data/v2"
 
-    def __init__(self, currency: str = "EUR", cache_path: str = "price_cache.db", log_fn=None, api_key: str = ""):
+    def __init__(self, currency: str = "EUR", cache_path: str = "price_cache.db", log_fn=None, api_key: str = "", coingecko_api_key: str = ""):
         self.currency = currency.upper()
         self.log = log_fn or print
         self.session = requests.Session()
         if api_key:
             self.session.headers["authorization"] = f"Apikey {api_key}"
+        self.coingecko_api_key = coingecko_api_key
         self.cache = PriceCache(cache_path)
 
     def close(self):
         """Close the price cache database connection."""
         self.cache.close()
+
+    def _fetch_range_coingecko(self, start_ts: int, end_ts: int) -> List[Tuple[int, Decimal]]:
+        """Fallback: fetch prices from CoinGecko for currencies CryptoCompare doesn't support.
+
+        CoinGecko free tier returns hourly data for ranges <=90 days,
+        daily data for ranges >90 days. We chunk into 90-day windows.
+        """
+        fetched = []
+        chunk_seconds = 89 * 86400  # 89 days per chunk to stay under 90-day hourly limit
+        current_start = start_ts
+        call_count = 0
+        max_retries = 3
+
+        while current_start < end_ts:
+            chunk_end = min(current_start + chunk_seconds, end_ts)
+
+            data = None
+            for attempt in range(max_retries):
+                try:
+                    headers = {}
+                    if self.coingecko_api_key:
+                        headers["x-cg-demo-api-key"] = self.coingecko_api_key
+                    resp = self.session.get(
+                        "https://api.coingecko.com/api/v3/coins/ethereum/market_chart/range",
+                        params={
+                            "vs_currency": self.currency.lower(),
+                            "from": current_start,
+                            "to": chunk_end,
+                        },
+                        headers=headers,
+                        timeout=30,
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    break
+                except (requests.exceptions.ConnectionError,
+                        requests.exceptions.Timeout,
+                        requests.exceptions.HTTPError) as e:
+                    if attempt < max_retries - 1:
+                        wait = 2 ** (attempt + 1)
+                        self.log(f"    CoinGecko request failed, retrying in {wait}s... ({e})")
+                        time.sleep(wait)
+                    else:
+                        self.log(f"    CoinGecko failed after {max_retries} retries: {e}")
+                        return fetched
+
+            if data is None or "prices" not in data:
+                self.log(f"    CoinGecko returned no price data")
+                break
+
+            for ts_ms, price_val in data["prices"]:
+                ts = int(ts_ms / 1000)
+                price = Decimal(str(price_val))
+                if start_ts <= ts <= end_ts and price > 0:
+                    fetched.append((ts, price))
+
+            call_count += 1
+            if call_count % 5 == 0:
+                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} CoinGecko calls)...")
+
+            current_start = chunk_end + 1
+            time.sleep(1.5)  # CoinGecko free tier: ~30 req/min
+
+        return fetched
 
     def _fetch_range(self, start_ts: int, end_ts: int) -> List[Tuple[int, Decimal]]:
         """Fetch hourly prices from CryptoCompare for a specific time range."""
@@ -774,6 +839,10 @@ class CryptoCompareClient:
         all_fetched = []
         for gap_start, gap_end in gaps:
             fetched = self._fetch_range(gap_start, gap_end)
+            if not fetched:
+                # CryptoCompare doesn't support this pair — fall back to CoinGecko
+                self.log(f"  CryptoCompare has no data for ETH/{self.currency}, trying CoinGecko...")
+                fetched = self._fetch_range_coingecko(gap_start, gap_end)
             all_fetched.extend(fetched)
 
         # Store newly fetched prices in cache
