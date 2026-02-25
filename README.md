@@ -54,12 +54,10 @@ Optional environment variables (all have sensible defaults):
 
 ## Security
 
-Hardened for public deployment using NIST Cybersecurity Framework principles:
-
 - **Rate limiting** — 60 req/min global, 3 req/min on report generation
-- **Concurrency cap** — configurable max parallel jobs with semaphore
+- **Concurrency cap** — configurable max parallel jobs
 - **CSP** — nonce-based Content Security Policy for scripts
-- **HTTPS** — enforced via `X-Forwarded-Proto` with HSTS
+- **HTTPS** — enforced with HSTS
 - **Error sanitization** — no tracebacks or internal details leak to clients
 - **Structured logging** — request IDs for tracing, no PII logged
 - **API resilience** — retry with exponential backoff for external APIs
