@@ -224,6 +224,14 @@
                     <label>Etherscan API Key</label>
                     <input type="password" name="etherscan_api_key" maxlength="40" pattern="^[a-zA-Z0-9]{34}$" placeholder="Required - get free at etherscan.io/apis" autocomplete="off">
                     <p class="hint">Free tier: 5 calls/sec, unlimited monthly. <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+
+                    <label>CryptoCompare API Key <span class="optional-tag">(optional)</span></label>
+                    <input type="password" name="cryptocompare_api_key" maxlength="80" placeholder="Optional - higher rate limits" autocomplete="off">
+                    <p class="hint">Free key for faster price fetching. <a href="https://www.cryptocompare.com/cryptopian/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+
+                    <label>CoinGecko API Key <span class="optional-tag">(optional)</span></label>
+                    <input type="password" name="coingecko_api_key" maxlength="40" placeholder="Optional - for SEK, NOK, DKK" autocomplete="off">
+                    <p class="hint">Free demo key for Nordic currencies. <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
                 </div>
 
                 <button type="submit" class="generate-btn" id="generateBtn">Generate Report</button>
@@ -468,6 +476,8 @@
                 currency: formData.get('currency'),
                 output_format: formData.get('output_format'),
                 etherscan_api_key: formData.get('etherscan_api_key'),
+                cryptocompare_api_key: formData.get('cryptocompare_api_key') || '',
+                coingecko_api_key: formData.get('coingecko_api_key') || '',
             };
 
             try {

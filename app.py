@@ -309,6 +309,8 @@ def generate():
         date_from = str(data.get("date_from", "")).strip()[:10]
         date_to = str(data.get("date_to", "")).strip()[:10]
         etherscan_api_key = str(data.get("etherscan_api_key", "")).strip()[:40]
+        cryptocompare_api_key = str(data.get("cryptocompare_api_key", "")).strip()[:80]
+        coingecko_api_key = str(data.get("coingecko_api_key", "")).strip()[:40]
         currency = str(data.get("currency", "EUR")).strip().upper()[:3]
         output_format = str(data.get("output_format", "xlsx")).strip()[:4]
 
@@ -423,7 +425,7 @@ def generate():
 
         thread = threading.Thread(
             target=_run_generation,
-            args=(job, accounts, date_from, date_to, etherscan_api_key, currency, output_format),
+            args=(job, accounts, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key),
             daemon=True,
         )
         thread.start()
@@ -440,7 +442,7 @@ def generate():
         return jsonify({"error": "An unexpected error occurred"}), 500
 
 
-def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, currency, output_format):
+def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key=""):
     """Background thread: fetch data, generate report, store result in job."""
     # Thread-safe log callback (no sys.stdout hijacking)
     log_fn = lambda msg: _log_to_job(job, msg)
@@ -453,7 +455,11 @@ def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, curren
 
         # Init clients with log callback
         etherscan = EtherscanClient(etherscan_api_key, log_fn=log_fn)
-        price_client = CryptoCompareClient(currency=currency, cache_path=_PRICE_CACHE_PATH, log_fn=log_fn, api_key=_CRYPTOCOMPARE_API_KEY, coingecko_api_key=_COINGECKO_API_KEY)
+        price_client = CryptoCompareClient(
+            currency=currency, cache_path=_PRICE_CACHE_PATH, log_fn=log_fn,
+            api_key=cryptocompare_api_key or _CRYPTOCOMPARE_API_KEY,
+            coingecko_api_key=coingecko_api_key or _COINGECKO_API_KEY,
+        )
 
         log_fn(f"Fetching ETH/{currency} prices...")
         prices = price_client.get_prices(start_ts, end_ts)
