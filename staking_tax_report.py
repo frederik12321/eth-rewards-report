@@ -243,6 +243,17 @@ class EtherscanClient:
             page += 1
         return all_results
 
+    def _get_block_number_by_timestamp(self, timestamp: int, closest: str = "before") -> int:
+        """Convert a timestamp to the nearest block number via Etherscan API."""
+        data = self._get({
+            "module": "block",
+            "action": "getblocknobytime",
+            "timestamp": str(timestamp),
+            "closest": closest,
+        })
+        result = data.get("result", "")
+        return int(result) if result and result.isdigit() else 0
+
     def get_execution_rewards(self, address: str, start_ts: int, end_ts: int) -> List[Dict]:
         """Fetch all execution layer rewards: local blocks (priority fees) + MEV payments.
 
@@ -253,6 +264,10 @@ class EtherscanClient:
            b. Block feeRecipient lookup (fallback for unknown builders)
         """
         address_lower = address.lower()
+
+        # Convert timestamps to block numbers to narrow transaction queries
+        start_block = self._get_block_number_by_timestamp(start_ts, "after") or 0
+        end_block = self._get_block_number_by_timestamp(end_ts, "before") or 99999999
 
         # --- Step 1: Local blocks (non-MEV, user is feeRecipient) ---
         self.log(f"  Fetching local block rewards from Etherscan...")
@@ -279,13 +294,13 @@ class EtherscanClient:
         self.log(f"  Fetching incoming transactions to detect MEV payments...")
         candidate_txs = []  # list of (block_number, sender, value_wei, timestamp)
 
-        # 2a: Regular transactions (txlist)
+        # 2a: Regular transactions (txlist) — filtered by block range
         regular_txs = self._fetch_paginated({
             "module": "account",
             "action": "txlist",
             "address": address,
-            "startblock": 0,
-            "endblock": 99999999,
+            "startblock": start_block,
+            "endblock": end_block,
             "sort": "asc",
         })
         for tx in regular_txs:
@@ -306,8 +321,8 @@ class EtherscanClient:
             "module": "account",
             "action": "txlistinternal",
             "address": address,
-            "startblock": 0,
-            "endblock": 99999999,
+            "startblock": start_block,
+            "endblock": end_block,
             "sort": "asc",
         })
         seen_blocks = set(c[0] for c in candidate_txs)
@@ -356,7 +371,7 @@ class EtherscanClient:
                     "type": "block_reward",
                 }
 
-            if (i + 1) % 25 == 0 or (i + 1) == len(candidate_txs):
+            if (i + 1) % 10 == 0 or (i + 1) == len(candidate_txs):
                 self.log(f"    Checked {i + 1}/{len(candidate_txs)} transactions ({len(mev_rewards)} MEV found so far)")
 
         self.log(f"    Found {len(mev_rewards)} MEV block rewards ({builder_hits} via known builders, {lookup_hits} via block lookup)")
@@ -948,8 +963,8 @@ class CryptoCompareClient:
                 break
 
             call_count += 1
-            if call_count % 50 == 0:
-                self.log(f"    Fetched {len(fetched)} price points so far ({call_count} API calls)...")
+            if call_count % 5 == 0:
+                self.log(f"    Fetched {len(fetched)} price points so far...")
             time.sleep(0.3)
 
         return fetched
