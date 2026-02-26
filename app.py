@@ -173,17 +173,20 @@ _stats = {"page_views": 0, "reports_generated": 0, "reports_completed": 0}
 
 def _load_stats():
     """Load stats from disk if available."""
+    logging.info("Stats path: %s (exists: %s)", _STATS_PATH, os.path.exists(_STATS_PATH))
     if os.path.exists(_STATS_PATH):
         try:
             with open(_STATS_PATH) as f:
                 saved = json.load(f)
                 _stats.update(saved)
+            logging.info("Loaded stats: %s", _stats)
         except Exception:
-            pass
+            logging.exception("Failed to load stats from %s", _STATS_PATH)
 
 
 def _save_stats():
     """Persist stats to disk atomically (safe for concurrent writes)."""
+    tmp_path = None
     try:
         stats_dir = os.path.dirname(_STATS_PATH) or "."
         os.makedirs(stats_dir, exist_ok=True)
@@ -192,10 +195,12 @@ def _save_stats():
             json.dump(_stats, f)
         os.replace(tmp_path, _STATS_PATH)
     except Exception:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+        logging.exception("Failed to save stats to %s", _STATS_PATH)
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
 
 _load_stats()

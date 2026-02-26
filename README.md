@@ -1,6 +1,8 @@
 # ETH Rewards Report
 
-Generate tax reports for Ethereum staking rewards. Fetches consensus layer withdrawals and execution layer rewards (including MEV), prices them in your local fiat currency, and exports to Excel or CSV.
+Calculate your Ethereum staking rewards. Fetches consensus layer withdrawals and execution layer rewards (including MEV), prices them in your local fiat currency, and exports to Excel or CSV.
+
+**Live app:** [ethrewards.up.railway.app](https://ethrewards.up.railway.app)
 
 [![Deploy on Railway](https://railway.com/button.svg)](https://railway.com/template/new?repository=https://github.com/frederik12321/eth-rewards-report)
 
@@ -8,7 +10,7 @@ Generate tax reports for Ethereum staking rewards. Fetches consensus layer withd
 
 - **Consensus withdrawals** — fetches all validator withdrawals from Etherscan
 - **Execution rewards** — detects local block proposals and MEV payments (40+ known builders)
-- **Fiat pricing** — hourly ETH prices from CryptoCompare in 10 currencies (EUR, USD, GBP, CHF, CAD, AUD, JPY, SEK, NOK, DKK)
+- **Fiat pricing** — hourly ETH prices in 10 currencies (EUR, USD, GBP, CHF, CAD, AUD, JPY, SEK, NOK, DKK)
 - **0x02 compounding validators** — correctly separates reward skimming from principal returns
 - **Multiple validators** — enter a withdrawal address, comma-separated indices, or a public key
 - **Export formats** — Excel (.xlsx), CSV, or both
@@ -49,7 +51,7 @@ Optional environment variables (all have sensible defaults):
 2. The app resolves validator indices via the Beacon Chain API
 3. Consensus withdrawals are fetched from Etherscan and classified as reward or principal
 4. Execution layer rewards are detected by scanning block proposals and matching against known MEV builder addresses
-5. Hourly ETH prices are fetched from CryptoCompare (cached in SQLite)
+5. Hourly ETH prices are fetched and cached in SQLite
 6. All events are priced in your chosen currency and exported to Excel/CSV
 
 ## Security
