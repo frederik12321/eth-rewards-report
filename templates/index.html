@@ -156,6 +156,30 @@
         footer { text-align: center; padding: 24px 20px; color: var(--text-muted); font-size: 11px; margin-top: 40px; border-top: 1px solid var(--border); }
         footer a { color: var(--text-dim); text-decoration: none; margin: 0 8px; }
         footer a:hover { color: #fff; }
+
+        /* Validation */
+        input.invalid { border-color: var(--red) !important; }
+        .field-error { font-size: 11px; color: var(--red); margin-top: -8px; margin-bottom: 12px; display: none; }
+        .field-error.visible { display: block; }
+
+        /* Advanced toggle */
+        .adv-toggle { display: flex; align-items: center; gap: 6px; background: none; border: none; color: var(--text-dim); font-size: 13px; cursor: pointer; padding: 8px 0; margin-bottom: 12px; width: 100%; }
+        .adv-toggle:hover { color: #fff; }
+        .adv-toggle .arrow { display: inline-block; transition: transform 0.2s; font-size: 10px; }
+        .adv-toggle.open .arrow { transform: rotate(90deg); }
+        .adv-content { display: none; }
+        .adv-content.open { display: block; }
+
+        /* Chart tooltip */
+        .chart-container { position: relative; }
+        .chart-tooltip { position: fixed; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; font-size: 12px; pointer-events: none; z-index: 100; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,0.5); display: none; }
+        .chart-tooltip.visible { display: block; }
+        .chart-tooltip .tt-month { font-weight: 600; color: #fff; margin-bottom: 6px; font-size: 13px; }
+        .chart-tooltip .tt-row { display: flex; justify-content: space-between; gap: 16px; color: var(--text-dim); line-height: 1.7; }
+        .chart-tooltip .tt-val { color: #fff; font-family: 'SF Mono', monospace; }
+        .chart-tooltip .tt-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+        .chart-tooltip .tt-total { border-top: 1px solid var(--border); margin-top: 4px; padding-top: 4px; color: #fff; font-weight: 600; }
+        .chart-bar-bg { cursor: crosshair; }
     </style>
 </head>
 <body>
@@ -180,17 +204,14 @@
                     <label>Withdrawal address, validator index(es), or public key</label>
                     <input type="text" name="validator_or_address" maxlength="200" placeholder="0x... address, validator index, comma-separated indices, or public key" required autocomplete="off" spellcheck="false">
                     <p class="hint">This is where your consensus layer (CL) rewards are withdrawn to</p>
-
-                    <label>Fee recipient address <span class="optional-tag">(optional)</span></label>
-                    <input type="text" name="fee_recipient" maxlength="42" pattern="^(0x[a-fA-F0-9]{40})?$" placeholder="0x... (only if different from withdrawal address)" autocomplete="off" spellcheck="false">
-                    <p class="hint">Only needed if your execution layer (EL) rewards go to a different address than your withdrawal address</p>
+                    <div class="field-error" data-for="validator_or_address"></div>
                 </div>
 
                 <div class="card">
                     <h2>Date Range</h2>
                     <div class="row">
-                        <div><label>From</label><input type="date" name="date_from" required></div>
-                        <div><label>To</label><input type="date" name="date_to" required></div>
+                        <div><label>From</label><input type="date" name="date_from" required><div class="field-error" data-for="date_from"></div></div>
+                        <div><label>To</label><input type="date" name="date_to" required><div class="field-error" data-for="date_to"></div></div>
                     </div>
                 </div>
 
@@ -224,14 +245,27 @@
                     <label>Etherscan API Key</label>
                     <input type="password" name="etherscan_api_key" maxlength="40" pattern="^[a-zA-Z0-9]{34}$" placeholder="Required - get free at etherscan.io/apis" autocomplete="off">
                     <p class="hint">Free tier: 5 calls/sec, unlimited monthly. <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+                    <div class="field-error" data-for="etherscan_api_key"></div>
+                </div>
 
-                    <label>CryptoCompare API Key <span class="optional-tag">(optional)</span></label>
-                    <input type="password" name="cryptocompare_api_key" maxlength="80" placeholder="Optional - higher rate limits" autocomplete="off">
-                    <p class="hint">Free key for faster price fetching. <a href="https://www.cryptocompare.com/cryptopian/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+                <button type="button" class="adv-toggle" id="advToggle">
+                    <span class="arrow">&#x25B6;</span> Advanced Options
+                </button>
+                <div class="adv-content" id="advContent">
+                    <div class="card">
+                        <label>Fee recipient address <span class="optional-tag">(optional)</span></label>
+                        <input type="text" name="fee_recipient" maxlength="42" pattern="^(0x[a-fA-F0-9]{40})?$" placeholder="0x... (only if different from withdrawal address)" autocomplete="off" spellcheck="false">
+                        <p class="hint">Only needed if your execution layer (EL) rewards go to a different address than your withdrawal address</p>
+                        <div class="field-error" data-for="fee_recipient"></div>
 
-                    <label>CoinGecko API Key <span class="optional-tag">(optional)</span></label>
-                    <input type="password" name="coingecko_api_key" maxlength="40" placeholder="Optional - for SEK, NOK, DKK" autocomplete="off">
-                    <p class="hint">Free demo key for Nordic currencies. <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+                        <label>CryptoCompare API Key <span class="optional-tag">(optional)</span></label>
+                        <input type="password" name="cryptocompare_api_key" maxlength="80" placeholder="Higher rate limits for price data" autocomplete="off">
+                        <p class="hint">Free key for faster price fetching. <a href="https://www.cryptocompare.com/cryptopian/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+
+                        <label>CoinGecko API Key <span class="optional-tag">(optional)</span></label>
+                        <input type="password" name="coingecko_api_key" maxlength="40" placeholder="Required for SEK, NOK, DKK" autocomplete="off">
+                        <p class="hint">Free demo key for Nordic currencies. <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+                    </div>
                 </div>
 
                 <button type="submit" class="generate-btn" id="generateBtn">Generate Report</button>
@@ -373,9 +407,10 @@
                 const maxEth = Math.max(...summary.months.map(m => m.total_eth)) || 1;
                 h += '<div class="card"><h2>Monthly Breakdown</h2>';
                 h += '<div class="chart-container">';
+                h += '<div class="chart-tooltip" id="chartTooltip"></div>';
                 for (const m of summary.months) {
                     const pct = ((m.total_eth / maxEth) * 100).toFixed(1);
-                    h += `<div class="chart-bar-row">
+                    h += `<div class="chart-bar-row" data-month="${esc(m.month)}" data-w="${m.withdrawals_eth}" data-br="${m.block_rewards_eth}" data-total="${m.total_eth}" data-fiat="${m.total_fiat.toFixed(2)}" data-currency="${c}">
                         <div class="chart-label">${esc(m.month.substring(2))}</div>
                         <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${pct}%"><div class="chart-bar-w" style="flex:${m.withdrawals_eth}"></div><div class="chart-bar-br" style="flex:${m.block_rewards_eth || 0.001}"></div></div></div>
                         <div class="chart-bar-value">${esc(m.total_eth.toFixed(4))}</div>
@@ -446,8 +481,129 @@
         document.getElementById('reportForm').addEventListener('input', saveToStorage);
         document.getElementById('reportForm').addEventListener('change', saveToStorage);
 
+        // --- Advanced toggle ---
+        const advToggle = document.getElementById('advToggle');
+        const advContent = document.getElementById('advContent');
+        advToggle.addEventListener('click', function() {
+            advToggle.classList.toggle('open');
+            advContent.classList.toggle('open');
+        });
+        // Auto-open if fee_recipient was loaded from storage
+        if (document.querySelector('[name="fee_recipient"]').value) {
+            advToggle.classList.add('open');
+            advContent.classList.add('open');
+        }
+
+        // --- Real-time form validation ---
+        const validators = {
+            validator_or_address(v) {
+                if (!v) return 'Required';
+                // Accept: 0x address (42 chars), validator index (number), comma-separated indices, pubkey (0x + 96 hex)
+                const trimmed = v.trim();
+                if (/^0x[a-fA-F0-9]{40}$/.test(trimmed)) return '';
+                if (/^0x[a-fA-F0-9]{96}$/.test(trimmed)) return '';
+                if (/^\d+$/.test(trimmed)) return '';
+                if (/^(\d+\s*,\s*)+\d+$/.test(trimmed)) return '';
+                return 'Enter a valid 0x address, validator index, or comma-separated indices';
+            },
+            fee_recipient(v) {
+                if (!v) return '';
+                if (/^0x[a-fA-F0-9]{40}$/.test(v.trim())) return '';
+                return 'Must be a valid 0x address (42 characters)';
+            },
+            date_from(v) {
+                if (!v) return 'Required';
+                if (v < '2020-12-01') return 'Cannot be before beacon chain genesis (Dec 1, 2020)';
+                return '';
+            },
+            date_to(v) {
+                if (!v) return 'Required';
+                const from = document.querySelector('[name="date_from"]').value;
+                if (from && v < from) return 'Must be after start date';
+                return '';
+            },
+            etherscan_api_key(v) {
+                if (!v) return 'Required';
+                if (/^[a-zA-Z0-9]{34}$/.test(v.trim())) return '';
+                return 'Must be 34 alphanumeric characters';
+            },
+        };
+
+        function showFieldError(name, msg) {
+            const input = document.querySelector(`[name="${name}"]`);
+            const errDiv = document.querySelector(`.field-error[data-for="${name}"]`);
+            if (msg) {
+                input.classList.add('invalid');
+                if (errDiv) { errDiv.textContent = msg; errDiv.classList.add('visible'); }
+            } else {
+                input.classList.remove('invalid');
+                if (errDiv) { errDiv.classList.remove('visible'); }
+            }
+        }
+
+        function validateField(name) {
+            const fn = validators[name];
+            if (!fn) return '';
+            const val = document.querySelector(`[name="${name}"]`).value;
+            const msg = fn(val);
+            showFieldError(name, msg);
+            return msg;
+        }
+
+        // Attach blur + input validation to all validated fields
+        Object.keys(validators).forEach(name => {
+            const el = document.querySelector(`[name="${name}"]`);
+            if (!el) return;
+            el.addEventListener('blur', () => validateField(name));
+            el.addEventListener('input', () => {
+                // Only clear errors on input (don't show new errors until blur)
+                const fn = validators[name];
+                const msg = fn(el.value);
+                if (!msg) showFieldError(name, '');
+            });
+        });
+        // Cross-validate date_to when date_from changes
+        document.querySelector('[name="date_from"]').addEventListener('change', () => {
+            if (document.querySelector('[name="date_to"]').value) validateField('date_to');
+        });
+
+        // --- Chart tooltip (event delegation) ---
+        document.getElementById('resultsSection').addEventListener('mousemove', function(e) {
+            const row = e.target.closest('.chart-bar-row');
+            const tooltip = document.getElementById('chartTooltip');
+            if (!tooltip) return;
+            if (!row || !e.target.closest('.chart-bar-bg')) {
+                tooltip.classList.remove('visible');
+                return;
+            }
+            const d = row.dataset;
+            tooltip.innerHTML = `<div class="tt-month">${esc(d.month)}</div>`
+                + `<div class="tt-row"><span><span class="tt-dot" style="background:var(--blue)"></span>Withdrawals</span><span class="tt-val">${parseFloat(d.w).toFixed(6)} ETH</span></div>`
+                + `<div class="tt-row"><span><span class="tt-dot" style="background:var(--purple)"></span>Block Rewards</span><span class="tt-val">${parseFloat(d.br).toFixed(6)} ETH</span></div>`
+                + `<div class="tt-row tt-total"><span>Total</span><span class="tt-val">${parseFloat(d.total).toFixed(6)} ETH</span></div>`
+                + `<div class="tt-row"><span>Value</span><span class="tt-val">${parseFloat(d.fiat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${esc(d.currency)}</span></div>`;
+            tooltip.classList.add('visible');
+            tooltip.style.left = (e.clientX + 12) + 'px';
+            tooltip.style.top = (e.clientY - 10) + 'px';
+        });
+        document.getElementById('resultsSection').addEventListener('mouseleave', function() {
+            const tooltip = document.getElementById('chartTooltip');
+            if (tooltip) tooltip.classList.remove('visible');
+        });
+
         document.getElementById('reportForm').addEventListener('submit', async function(e) {
             e.preventDefault();
+            // Validate all required fields before submitting
+            let hasErrors = false;
+            Object.keys(validators).forEach(name => {
+                const msg = validateField(name);
+                if (msg) hasErrors = true;
+            });
+            if (hasErrors) {
+                const firstInvalid = document.querySelector('input.invalid');
+                if (firstInvalid) firstInvalid.focus();
+                return;
+            }
             const btn = document.getElementById('generateBtn');
             const status = document.getElementById('status');
             const logBox = document.getElementById('logBox');
