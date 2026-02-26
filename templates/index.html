@@ -321,11 +321,7 @@
                 output_format: document.querySelector('[name="output_format"]').value,
                 auto_download: document.querySelector('[name="auto_download"]').checked,
             }));
-            // Only store non-sensitive data in sessionStorage (API key intentionally excluded)
-            sessionStorage.setItem(SENSITIVE_KEY, JSON.stringify({
-                validator_or_address: document.querySelector('[name="validator_or_address"]').value,
-                fee_recipient: document.querySelector('[name="fee_recipient"]').value,
-            }));
+            // Addresses are not cached for privacy
         }
 
         function loadFromStorage() {
@@ -337,11 +333,8 @@
                 if (c.output_format) document.querySelector('[name="output_format"]').value = c.output_format;
                 if (c.auto_download) document.querySelector('[name="auto_download"]').checked = c.auto_download;
             } catch(e) {}
-            try {
-                const s = JSON.parse(sessionStorage.getItem(SENSITIVE_KEY) || '{}');
-                if (s.validator_or_address) document.querySelector('[name="validator_or_address"]').value = s.validator_or_address;
-                if (s.fee_recipient) document.querySelector('[name="fee_recipient"]').value = s.fee_recipient;
-            } catch(e) {}
+            // Clear any previously stored addresses (legacy cleanup)
+            try { sessionStorage.removeItem(SENSITIVE_KEY); } catch(e) {}
         }
 
         function classifyLogLine(msg) {
