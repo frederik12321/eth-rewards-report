@@ -14,7 +14,7 @@ workers = 1
 threads = 12
 
 # Timeouts
-timeout = 120          # Allow long-running SSE connections
+timeout = 300          # Allow long-running SSE connections (5 min)
 graceful_timeout = 30  # Wait for active requests on shutdown
 keepalive = 5
 

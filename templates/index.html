@@ -644,16 +644,31 @@
                 status.innerHTML = '<span class="spinner"></span>Generating report...';
 
                 await new Promise((resolve, reject) => {
-                    const es = new EventSource(`/stream/${encodeURIComponent(jobId)}`);
-                    es.onmessage = function(event) {
-                        try {
-                            const d = JSON.parse(event.data);
-                            if (d.type === 'log') appendLog(logBox, d.message);
-                            else if (d.type === 'done') { es.close(); resolve({ filename: d.filename, summary: d.summary, jobId }); }
-                            else if (d.type === 'error') { es.close(); reject(new Error(d.message)); }
-                        } catch(pe) { appendLog(logBox, event.data); }
-                    };
-                    es.onerror = function() { es.close(); reject(new Error('Lost connection to server')); };
+                    let retries = 0;
+                    const maxRetries = 5;
+                    function connectSSE() {
+                        const es = new EventSource(`/stream/${encodeURIComponent(jobId)}`);
+                        es.onmessage = function(event) {
+                            retries = 0; // reset on successful message
+                            try {
+                                const d = JSON.parse(event.data);
+                                if (d.type === 'log') appendLog(logBox, d.message);
+                                else if (d.type === 'done') { es.close(); resolve({ filename: d.filename, summary: d.summary, jobId }); }
+                                else if (d.type === 'error') { es.close(); reject(new Error(d.message)); }
+                            } catch(pe) { appendLog(logBox, event.data); }
+                        };
+                        es.onerror = function() {
+                            es.close();
+                            retries++;
+                            if (retries <= maxRetries) {
+                                appendLog(logBox, `Connection interrupted, reconnecting (${retries}/${maxRetries})...`);
+                                setTimeout(connectSSE, 2000 * retries);
+                            } else {
+                                reject(new Error('Lost connection to server after multiple retries'));
+                            }
+                        };
+                    }
+                    connectSSE();
                 }).then(({ filename, summary, jobId }) => {
                     status.className = 'status success';
                     status.textContent = 'Report generated successfully!';
