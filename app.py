@@ -61,8 +61,9 @@ logging.basicConfig(
     format="%(asctime)s %(levelname)s [%(request_id)s] %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
+# Add request_id filter to root logger so all logging calls get the field
+logging.getLogger().addFilter(_RequestIdFilter())
 logger = logging.getLogger("eth_rewards")
-logger.addFilter(_RequestIdFilter())
 
 # Suppress werkzeug request logging (avoids logging addresses/API keys in URLs)
 logging.getLogger("werkzeug").setLevel(logging.ERROR)
@@ -76,10 +77,10 @@ app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB max request size
 
 # Environment-based config
 _MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
-_PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db")
+_PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db").strip().lstrip("=").strip()
 _CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")
 _COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
-_STATS_PATH = os.environ.get("STATS_PATH", os.path.join(os.path.dirname(__file__), "stats.json"))
+_STATS_PATH = os.environ.get("STATS_PATH", os.path.join(os.path.dirname(__file__), "stats.json")).strip().lstrip("=").strip()
 
 # Seed bundled price cache to volume on first deploy
 _BUNDLED_CACHE = os.path.join(os.path.dirname(__file__), "price_cache.db")
