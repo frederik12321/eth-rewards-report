@@ -42,7 +42,6 @@ Optional environment variables (all have sensible defaults):
 |---|---|---|
 | `PORT` | `8080` | Set automatically by Railway |
 | `MAX_CONCURRENT_JOBS` | `5` | Max parallel report generations |
-| `PRICE_CACHE_PATH` | `price_cache.db` | SQLite cache for ETH prices |
 | `STATS_PATH` | `stats.json` | Aggregate usage counters |
 
 ## How it works
@@ -51,7 +50,7 @@ Optional environment variables (all have sensible defaults):
 2. The app resolves validator indices via the Beacon Chain API
 3. Consensus withdrawals are fetched from Etherscan and classified as reward or principal
 4. Execution layer rewards are detected by scanning block proposals and matching against known MEV builder addresses
-5. Hourly ETH prices are fetched and cached in SQLite
+5. Hourly ETH prices are fetched for the date range
 6. All events are priced in your chosen currency and exported to Excel/CSV
 
 ## Security
