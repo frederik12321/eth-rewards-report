@@ -89,7 +89,7 @@
                     <tr><td>Wallet address</td><td>Sent to Etherscan & Beacon API to fetch your transactions</td><td>No &mdash; discarded after report generation</td></tr>
                     <tr><td>Validator index</td><td>Sent to Beacon API to resolve withdrawal address</td><td>No &mdash; discarded after report generation</td></tr>
                     <tr><td>Etherscan API key</td><td>Used to authenticate Etherscan API requests</td><td>No &mdash; never stored server-side</td></tr>
-                    <tr><td>Generated report</td><td>Held in server memory until downloaded</td><td>Deleted immediately after download (max 10 min if not downloaded)</td></tr>
+                    <tr><td>Generated report</td><td>Stored as a temporary file on the server until downloaded</td><td>Deleted immediately after download (max 10 min if not downloaded)</td></tr>
                     <tr><td>Price data</td><td>Cached locally for faster subsequent queries</td><td>Yes &mdash; only generic ETH prices, no user data</td></tr>
                 </tbody>
             </table>

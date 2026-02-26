@@ -8,10 +8,11 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '8080')}"
 # Multiple workers would each have their own _jobs, breaking job tracking.
 workers = 1
 
-# Threads: handle concurrent requests within the single worker.
-# SSE connections hold a thread but are mostly idle (sleeping 0.3s loops),
-# so more threads are safe and prevent SSE from starving other requests.
-threads = 12
+# Use gevent async worker: handles SSE connections without blocking threads.
+# Each SSE stream uses a lightweight greenlet instead of a full OS thread,
+# so hundreds of concurrent viewers won't starve regular HTTP requests.
+worker_class = "gevent"
+worker_connections = 200
 
 # Timeouts
 timeout = 300          # Allow long-running SSE connections (5 min)

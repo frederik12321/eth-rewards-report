@@ -123,6 +123,13 @@ def _cleanup_old_jobs():
     with _jobs_lock:
         expired = [jid for jid, j in _jobs.items() if now - j["created"] > 600]
         for jid in expired:
+            # Clean up temp file if it was never downloaded
+            fp = _jobs[jid].get("file_path")
+            if fp:
+                try:
+                    os.unlink(fp)
+                except OSError:
+                    pass
             del _jobs[jid]
 
 
@@ -348,57 +355,11 @@ def generate():
             if not ETH_ADDRESS_RE.match(fee_recipient):
                 return jsonify({"error": "Invalid fee recipient address format"}), 400
 
-        # Validate and resolve validator/address input
+        # Validate validator/address input format (no network calls here)
         try:
             parsed = parse_validator_input(validator_or_address)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
-
-        acc = {"name": "report"}
-        beacon = None
-
-        if parsed["type"] == "withdrawal_address":
-            acc["withdrawal_address"] = parsed["value"]
-        elif parsed["type"] == "validator_indices":
-            try:
-                beacon = BeaconClient()
-                indices = []
-                pubkeys = {}
-                address = None
-                cred_type = "0x01"
-                for vid in parsed["value"]:
-                    info = beacon.get_validator_info(vid)
-                    indices.append(info["validator_index"])
-                    pubkeys[info["validator_index"]] = info.get("pubkey", "")
-                    cred_type = info.get("credential_type", "0x01")
-                    acc.setdefault("_validator_details", []).append(info)
-                    if address is None:
-                        address = info["withdrawal_address"]
-                    elif info["withdrawal_address"].lower() != address.lower():
-                        return jsonify({"error": "Validators have different withdrawal addresses. Use a withdrawal address instead."}), 400
-                acc["withdrawal_address"] = address
-                acc["validator_indices"] = indices
-                acc["credential_type"] = cred_type
-                acc["validator_pubkeys"] = pubkeys
-            except RuntimeError as e:
-                return jsonify({"error": _sanitize_error(e)}), 400
-        else:
-            try:
-                if beacon is None:
-                    beacon = BeaconClient()
-                info = beacon.get_validator_info(parsed["value"])
-                acc["withdrawal_address"] = info["withdrawal_address"]
-                acc["validator_indices"] = [info["validator_index"]]
-                acc["credential_type"] = info.get("credential_type", "0x01")
-                acc["validator_pubkeys"] = {info["validator_index"]: info.get("pubkey", "")}
-                acc["_validator_details"] = [info]
-            except RuntimeError as e:
-                return jsonify({"error": _sanitize_error(e)}), 400
-
-        if fee_recipient:
-            acc["fee_recipient"] = fee_recipient
-
-        accounts = [acc]
 
         # Parse and validate dates
         try:
@@ -423,7 +384,7 @@ def generate():
         job = {
             "status": "running",
             "logs": [],
-            "file_bytes": None,
+            "file_path": None,
             "filename": None,
             "mimetype": None,
             "error": None,
@@ -437,7 +398,7 @@ def generate():
 
         thread = threading.Thread(
             target=_run_generation,
-            args=(job, accounts, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key),
+            args=(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key),
             daemon=True,
         )
         thread.start()
@@ -454,12 +415,51 @@ def generate():
         return jsonify({"error": "An unexpected error occurred"}), 500
 
 
-def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key=""):
-    """Background thread: fetch data, generate report, store result in job."""
+def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key=""):
+    """Background thread: resolve validators, fetch data, generate report."""
     # Thread-safe log callback (no sys.stdout hijacking)
     log_fn = lambda msg: _log_to_job(job, msg)
     price_client = None
     try:
+        # --- Resolve validator/address input (moved here from /generate) ---
+        acc = {"name": "report"}
+        if parsed["type"] == "withdrawal_address":
+            acc["withdrawal_address"] = parsed["value"]
+        elif parsed["type"] == "validator_indices":
+            beacon = BeaconClient()
+            indices = []
+            pubkeys = {}
+            address = None
+            cred_type = "0x01"
+            log_fn(f"Resolving {len(parsed['value'])} validator(s) on beacon chain...")
+            for vid in parsed["value"]:
+                info = beacon.get_validator_info(vid)
+                indices.append(info["validator_index"])
+                pubkeys[info["validator_index"]] = info.get("pubkey", "")
+                cred_type = info.get("credential_type", "0x01")
+                acc.setdefault("_validator_details", []).append(info)
+                if address is None:
+                    address = info["withdrawal_address"]
+                elif info["withdrawal_address"].lower() != address.lower():
+                    raise RuntimeError("Validators have different withdrawal addresses. Use a withdrawal address instead.")
+            acc["withdrawal_address"] = address
+            acc["validator_indices"] = indices
+            acc["credential_type"] = cred_type
+            acc["validator_pubkeys"] = pubkeys
+        else:
+            beacon = BeaconClient()
+            log_fn("Resolving validator on beacon chain...")
+            info = beacon.get_validator_info(parsed["value"])
+            acc["withdrawal_address"] = info["withdrawal_address"]
+            acc["validator_indices"] = [info["validator_index"]]
+            acc["credential_type"] = info.get("credential_type", "0x01")
+            acc["validator_pubkeys"] = {info["validator_index"]: info.get("pubkey", "")}
+            acc["_validator_details"] = [info]
+
+        if fee_recipient:
+            acc["fee_recipient"] = fee_recipient
+        accounts = [acc]
+
         start_ts = int(datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
         end_ts = int(datetime.strptime(date_to, "%Y-%m-%d").replace(
             hour=23, minute=59, second=59, tzinfo=timezone.utc
@@ -533,11 +533,16 @@ def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, curren
             filename = f"{filename_base}.zip"
             mimetype = "application/zip"
 
+        # Write to temp file instead of holding in RAM
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{filename}")
+        tmp.write(file_bytes)
+        tmp.close()
+
         log_fn("Report ready for download.")
         _inc_stat("reports_completed")
         with job["lock"]:
             job["status"] = "done"
-            job["file_bytes"] = file_bytes
+            job["file_path"] = tmp.name
             job["filename"] = filename
             job["mimetype"] = mimetype
             job["summary"] = summary
@@ -592,34 +597,35 @@ def _build_validator_info(accounts, all_events):
 
 def _build_summary(all_events, validator_info, currency):
     """Build a JSON-serializable summary dict for the frontend."""
-    w_eth = sum(float(e["amount_eth"]) for e in all_events if e["type"] == "withdrawal")
-    w_fiat = sum(float(e["value_fiat"]) for e in all_events if e["type"] == "withdrawal")
-    br_eth = sum(float(e["amount_eth"]) for e in all_events if e["type"] == "block_reward")
-    br_fiat = sum(float(e["value_fiat"]) for e in all_events if e["type"] == "block_reward")
-    p_eth = sum(float(e["amount_eth"]) for e in all_events if e["type"] == "withdrawal_principal")
-    p_fiat = sum(float(e["value_fiat"]) for e in all_events if e["type"] == "withdrawal_principal")
+    _Z = Decimal(0)
+    w_eth = sum((e["amount_eth"] for e in all_events if e["type"] == "withdrawal"), _Z)
+    w_fiat = sum((e["value_fiat"] for e in all_events if e["type"] == "withdrawal"), _Z)
+    br_eth = sum((e["amount_eth"] for e in all_events if e["type"] == "block_reward"), _Z)
+    br_fiat = sum((e["value_fiat"] for e in all_events if e["type"] == "block_reward"), _Z)
+    p_eth = sum((e["amount_eth"] for e in all_events if e["type"] == "withdrawal_principal"), _Z)
+    p_fiat = sum((e["value_fiat"] for e in all_events if e["type"] == "withdrawal_principal"), _Z)
 
     summary = {
         "currency": currency,
-        "total_income_eth": w_eth + br_eth,
-        "total_income_fiat": w_fiat + br_fiat,
-        "withdrawals_eth": w_eth,
-        "withdrawals_fiat": w_fiat,
-        "block_rewards_eth": br_eth,
-        "block_rewards_fiat": br_fiat,
+        "total_income_eth": float(w_eth + br_eth),
+        "total_income_fiat": float(w_fiat + br_fiat),
+        "withdrawals_eth": float(w_eth),
+        "withdrawals_fiat": float(w_fiat),
+        "block_rewards_eth": float(br_eth),
+        "block_rewards_fiat": float(br_fiat),
         "event_count": len(all_events),
     }
 
     if p_eth > 0:
-        summary["principal_eth"] = p_eth
-        summary["principal_fiat"] = p_fiat
+        summary["principal_eth"] = float(p_eth)
+        summary["principal_fiat"] = float(p_fiat)
 
-    months = defaultdict(lambda: {"w_eth": 0.0, "w_fiat": 0.0, "br_eth": 0.0, "br_fiat": 0.0, "p_eth": 0.0, "p_fiat": 0.0, "prices": []})
+    months = defaultdict(lambda: {"w_eth": _Z, "w_fiat": _Z, "br_eth": _Z, "br_fiat": _Z, "p_eth": _Z, "p_fiat": _Z, "prices": []})
     for e in all_events:
         mk = e["datetime"].strftime("%Y-%m")
-        amt = float(e["amount_eth"])
-        val = float(e["value_fiat"])
-        months[mk]["prices"].append(float(e["price_fiat"]))
+        amt = e["amount_eth"]
+        val = e["value_fiat"]
+        months[mk]["prices"].append(e["price_fiat"])
         if e["type"] == "withdrawal":
             months[mk]["w_eth"] += amt
             months[mk]["w_fiat"] += val
@@ -634,20 +640,20 @@ def _build_summary(all_events, validator_info, currency):
     for mk in sorted(months.keys()):
         m = months[mk]
         prices_list = m["prices"]
-        avg_price = sum(prices_list) / len(prices_list) if prices_list else 0.0
+        avg_price = float(sum(prices_list, _Z) / len(prices_list)) if prices_list else 0.0
         entry = {
             "month": mk,
-            "withdrawals_eth": m["w_eth"],
-            "withdrawals_fiat": m["w_fiat"],
-            "block_rewards_eth": m["br_eth"],
-            "block_rewards_fiat": m["br_fiat"],
-            "total_eth": m["w_eth"] + m["br_eth"],
-            "total_fiat": m["w_fiat"] + m["br_fiat"],
+            "withdrawals_eth": float(m["w_eth"]),
+            "withdrawals_fiat": float(m["w_fiat"]),
+            "block_rewards_eth": float(m["br_eth"]),
+            "block_rewards_fiat": float(m["br_fiat"]),
+            "total_eth": float(m["w_eth"] + m["br_eth"]),
+            "total_fiat": float(m["w_fiat"] + m["br_fiat"]),
             "avg_price": avg_price,
         }
         if p_eth > 0:
-            entry["principal_eth"] = m["p_eth"]
-            entry["principal_fiat"] = m["p_fiat"]
+            entry["principal_eth"] = float(m["p_eth"])
+            entry["principal_fiat"] = float(m["p_fiat"])
         summary["months"].append(entry)
 
     if validator_info:
@@ -725,16 +731,26 @@ def download(job_id):
         return jsonify({"error": "Job not found"}), 404
 
     with job["lock"]:
-        if job["status"] != "done" or not job["file_bytes"]:
+        if job["status"] != "done" or not job["file_path"]:
             return jsonify({"error": "Report not ready yet"}), 202
 
-        file_bytes = job["file_bytes"]
+        file_path = job["file_path"]
         mimetype = job["mimetype"]
         filename = job["filename"]
 
     # Delete job from memory immediately — summary is already client-side
     with _jobs_lock:
         _jobs.pop(job_id, None)
+
+    # Stream file from disk, then clean up the temp file
+    try:
+        with open(file_path, "rb") as f:
+            file_bytes = f.read()
+    finally:
+        try:
+            os.unlink(file_path)
+        except OSError:
+            pass
 
     return Response(
         file_bytes,
