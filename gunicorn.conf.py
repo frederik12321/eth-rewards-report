@@ -9,7 +9,9 @@ bind = f"0.0.0.0:{os.environ.get('PORT', '8080')}"
 workers = 1
 
 # Threads: handle concurrent requests within the single worker.
-threads = 4
+# SSE connections hold a thread but are mostly idle (sleeping 0.3s loops),
+# so more threads are safe and prevent SSE from starving other requests.
+threads = 12
 
 # Timeouts
 timeout = 120          # Allow long-running SSE connections

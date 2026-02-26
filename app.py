@@ -75,6 +75,10 @@ logging.getLogger("werkzeug").setLevel(logging.ERROR)
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1 * 1024 * 1024  # 1 MB max request size
 
+# Trust one level of proxy headers (Railway's TLS-terminating reverse proxy)
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
+
 # Environment-based config
 _MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
 _PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db").strip().lstrip("=").strip()
@@ -235,7 +239,7 @@ def set_security_headers(response):
     csp = (
         f"default-src 'self'; "
         f"script-src 'self' 'nonce-{nonce}'; "
-        f"style-src 'self' 'unsafe-inline'; "
+        f"style-src 'self' 'nonce-{nonce}'; "
         f"connect-src 'self'"
     )
     response.headers["Content-Security-Policy"] = csp
@@ -491,6 +495,13 @@ def _run_generation(job, accounts, date_from, date_to, etherscan_api_key, curren
                 job["error"] = "No events found for any account in the given date range"
             return
 
+        MAX_EVENTS = 100_000
+        if len(all_events) > MAX_EVENTS:
+            with job["lock"]:
+                job["status"] = "error"
+                job["error"] = f"Too many events ({len(all_events):,}). Please use a shorter date range."
+            return
+
         _prepare_events(all_events, prices)
         validator_info = _build_validator_info(accounts, all_events)
         summary = _build_summary(all_events, validator_info, currency)
@@ -705,6 +716,7 @@ def stream(job_id):
 
 
 @app.route("/download/<job_id>")
+@limiter.limit("10 per minute")
 def download(job_id):
     """Download the generated report file and delete the job from memory."""
     with _jobs_lock:
