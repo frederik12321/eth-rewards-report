@@ -1394,6 +1394,11 @@ def gather_events(
     log(f"  Fetching execution layer rewards (local blocks + MEV) for {fee_recipient[:10]}...{fee_recipient[-4:]}...")
     block_rewards = etherscan.get_execution_rewards(fee_recipient, start_ts, end_ts)
 
+    # Tag block rewards with validator index when a single validator is queried
+    if validator_indices and len(validator_indices) == 1:
+        for br in block_rewards:
+            br["validator"] = validator_indices[0]
+
     return withdrawals + block_rewards
 
 

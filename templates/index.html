@@ -46,6 +46,9 @@
         input, select { width: 100%; padding: 10px 12px; background: var(--input); border: 1px solid var(--border); border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 12px; }
         input:focus, select:focus { outline: none; border-color: var(--blue); }
         input[type="date"] { color-scheme: dark; }
+        .yr-btn { padding: 6px 14px; background: var(--input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+        .yr-btn:hover { border-color: var(--blue); color: #fff; }
+        .yr-btn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
         .row { display: flex; gap: 12px; }
         .row > div { flex: 1; }
         .generate-btn { width: 100%; padding: 14px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: background 0.15s; }
@@ -209,7 +212,12 @@
                 </div>
 
                 <div class="card">
-                    <h2>Date Range</h2>
+                    <h2>Date Range <span style="font-size:11px;color:var(--text-muted);text-transform:none;letter-spacing:0;font-weight:400">(both dates inclusive)</span></h2>
+                    <div class="year-btns" style="display:flex;gap:8px;margin-bottom:12px;">
+                        <button type="button" class="yr-btn" data-year="2024">2024</button>
+                        <button type="button" class="yr-btn" data-year="2025">2025</button>
+                        <button type="button" class="yr-btn" data-year="2026">2026</button>
+                    </div>
                     <div class="row">
                         <div><label>From</label><input type="date" name="date_from" required><div class="field-error" data-for="date_from"></div></div>
                         <div><label>To</label><input type="date" name="date_to" required><div class="field-error" data-for="date_to"></div></div>
@@ -560,6 +568,25 @@
         // Cross-validate date_to when date_from changes
         document.querySelector('[name="date_from"]').addEventListener('change', () => {
             if (document.querySelector('[name="date_to"]').value) validateField('date_to');
+        });
+
+        // Year quick-select buttons
+        document.querySelectorAll('.yr-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const y = btn.dataset.year;
+                document.querySelector('[name="date_from"]').value = `${y}-01-01`;
+                document.querySelector('[name="date_to"]').value = `${y}-12-31`;
+                document.querySelectorAll('.yr-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                validateField('date_from');
+                validateField('date_to');
+            });
+        });
+        // Clear active year button when dates are manually changed
+        ['date_from', 'date_to'].forEach(name => {
+            document.querySelector(`[name="${name}"]`).addEventListener('input', () => {
+                document.querySelectorAll('.yr-btn').forEach(b => b.classList.remove('active'));
+            });
         });
 
         // --- Chart tooltip (event delegation) ---
