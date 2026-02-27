@@ -27,6 +27,7 @@ import zipfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from decimal import Decimal
+from zoneinfo import ZoneInfo, available_timezones
 
 from flask import Flask, render_template, request, jsonify, Response, redirect, has_request_context
 from flask_limiter import Limiter
@@ -332,6 +333,7 @@ def generate():
         coingecko_api_key = str(data.get("coingecko_api_key", "")).strip()[:40]
         currency = str(data.get("currency", "EUR")).strip().upper()[:3]
         output_format = str(data.get("output_format", "xlsx")).strip()[:4]
+        tz_name = str(data.get("timezone", "UTC")).strip()[:50]
 
         if not validator_or_address:
             return jsonify({"error": "Validator index, public key, or withdrawal address is required"}), 400
@@ -355,24 +357,31 @@ def generate():
             if not ETH_ADDRESS_RE.match(fee_recipient):
                 return jsonify({"error": "Invalid fee recipient address format"}), 400
 
+        # Validate timezone
+        try:
+            user_tz = ZoneInfo(tz_name)
+        except (KeyError, Exception):
+            user_tz = ZoneInfo("UTC")
+            tz_name = "UTC"
+
         # Validate validator/address input format (no network calls here)
         try:
             parsed = parse_validator_input(validator_or_address)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
 
-        # Parse and validate dates
+        # Parse and validate dates (interpret in user's timezone)
         try:
-            start_dt = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            start_dt = datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=user_tz)
             end_dt = datetime.strptime(date_to, "%Y-%m-%d").replace(
-                hour=23, minute=59, second=59, tzinfo=timezone.utc
+                hour=23, minute=59, second=59, tzinfo=user_tz
             )
         except ValueError:
             return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
 
         if start_dt >= end_dt:
             return jsonify({"error": "Start date must be before end date"}), 400
-        if start_dt < BEACON_GENESIS:
+        if start_dt.astimezone(timezone.utc) < BEACON_GENESIS:
             return jsonify({"error": "Start date cannot be before beacon chain genesis (Dec 1, 2020)"}), 400
 
         # Concurrency control: reject if at capacity
@@ -398,7 +407,7 @@ def generate():
 
         thread = threading.Thread(
             target=_run_generation,
-            args=(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key),
+            args=(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key, tz_name),
             daemon=True,
         )
         thread.start()
@@ -415,11 +424,12 @@ def generate():
         return jsonify({"error": "An unexpected error occurred"}), 500
 
 
-def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key=""):
+def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key="", tz_name="UTC"):
     """Background thread: resolve validators, fetch data, generate report."""
     # Thread-safe log callback (no sys.stdout hijacking)
     log_fn = lambda msg: _log_to_job(job, msg)
     price_client = None
+    user_tz = ZoneInfo(tz_name)
     try:
         # --- Resolve validator/address input (moved here from /generate) ---
         acc = {"name": "report"}
@@ -460,9 +470,9 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
             acc["fee_recipient"] = fee_recipient
         accounts = [acc]
 
-        start_ts = int(datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        start_ts = int(datetime.strptime(date_from, "%Y-%m-%d").replace(tzinfo=user_tz).timestamp())
         end_ts = int(datetime.strptime(date_to, "%Y-%m-%d").replace(
-            hour=23, minute=59, second=59, tzinfo=timezone.utc
+            hour=23, minute=59, second=59, tzinfo=user_tz
         ).timestamp())
 
         # Init clients with log callback
@@ -502,7 +512,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
                 job["error"] = f"Too many events ({len(all_events):,}). Please use a shorter date range."
             return
 
-        _prepare_events(all_events, prices)
+        _prepare_events(all_events, prices, tz=user_tz)
         validator_info = _build_validator_info(accounts, all_events)
         summary = _build_summary(all_events, validator_info, currency)
 
@@ -515,16 +525,16 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
 
         log_fn("Generating report file...")
         if output_format == "xlsx":
-            file_bytes = write_excel_bytes(all_events, prices, currency, validator_info=validator_info)
+            file_bytes = write_excel_bytes(all_events, prices, currency, validator_info=validator_info, tz_label=tz_name)
             filename = f"{filename_base}.xlsx"
             mimetype = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         elif output_format == "csv":
-            file_bytes = write_csv_bytes(all_events, prices, currency)
+            file_bytes = write_csv_bytes(all_events, prices, currency, tz_label=tz_name)
             filename = f"{filename_base}.csv"
             mimetype = "text/csv"
         else:
-            xlsx_bytes = write_excel_bytes(all_events, prices, currency, validator_info=validator_info)
-            csv_bytes = write_csv_bytes(all_events, prices, currency)
+            xlsx_bytes = write_excel_bytes(all_events, prices, currency, validator_info=validator_info, tz_label=tz_name)
+            csv_bytes = write_csv_bytes(all_events, prices, currency, tz_label=tz_name)
             zip_buf = io.BytesIO()
             with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr(f"{filename_base}.xlsx", xlsx_bytes)

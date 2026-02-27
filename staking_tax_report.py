@@ -1050,19 +1050,23 @@ def find_nearest_price(prices: List[Tuple[int, Decimal]], timestamp: int) -> Dec
 # Report writers (file + in-memory)
 # ---------------------------------------------------------------------------
 
-def _prepare_events(events: List[Dict], prices: List[Tuple[int, Decimal]]):
-    """Enrich events with price data and datetime. All amounts use Decimal."""
+def _prepare_events(events: List[Dict], prices: List[Tuple[int, Decimal]], tz=None):
+    """Enrich events with price data and datetime. All amounts use Decimal.
+
+    tz: optional timezone for datetime display (default: UTC).
+    """
+    display_tz = tz or timezone.utc
     for event in sorted(events, key=lambda e: e["timestamp"]):
-        dt = datetime.fromtimestamp(event["timestamp"], tz=timezone.utc)
+        dt = datetime.fromtimestamp(event["timestamp"], tz=timezone.utc).astimezone(display_tz)
         price = find_nearest_price(prices, event["timestamp"])
         event["price_fiat"] = price
         event["value_fiat"] = event["amount_eth"] * price
         event["datetime"] = dt
 
 
-def _write_csv_rows(events: List[Dict], currency: str, writer):
+def _write_csv_rows(events: List[Dict], currency: str, writer, tz_label: str = "UTC"):
     """Write CSV rows to any csv.writer-compatible object."""
-    writer.writerow(["Date", "Time (UTC)", "Type", "Validator", "Amount [ETH]", f"Price [{currency}/ETH]", f"Value [{currency}]"])
+    writer.writerow(["Date", f"Time ({tz_label})", "Type", "Validator", "Amount [ETH]", f"Price [{currency}/ETH]", f"Value [{currency}]"])
     for event in sorted(events, key=lambda e: e["timestamp"]):
         dt = event["datetime"]
         writer.writerow([
@@ -1093,7 +1097,7 @@ def write_csv(events: List[Dict], prices: List[Tuple[int, Decimal]], account_nam
     return filepath
 
 
-def write_csv_bytes(events: List[Dict], prices: List[Tuple[int, Decimal]], currency: str = "EUR") -> bytes:
+def write_csv_bytes(events: List[Dict], prices: List[Tuple[int, Decimal]], currency: str = "EUR", tz_label: str = "UTC") -> bytes:
     """Generate CSV report in memory and return as bytes."""
     import csv
     import io
@@ -1101,12 +1105,12 @@ def write_csv_bytes(events: List[Dict], prices: List[Tuple[int, Decimal]], curre
 
     buf = io.StringIO()
     writer = csv.writer(buf)
-    _write_csv_rows(events, currency, writer)
+    _write_csv_rows(events, currency, writer, tz_label=tz_label)
     return buf.getvalue().encode("utf-8")
 
 
 def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]], currency: str = "EUR",
-                          validator_info: Optional[List[Dict]] = None) -> Workbook:
+                          validator_info: Optional[List[Dict]] = None, tz_label: str = "UTC") -> Workbook:
     """Build an Excel workbook with monthly sheets + summary. Returns the Workbook object.
 
     validator_info: optional list of dicts with keys: index, name, credential_type, status,
@@ -1122,7 +1126,7 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
         events_by_month[month_key].append(event)
 
     # Create monthly sheets
-    header = ["Date", "Time (UTC)", "Type", "Validator", "Amount [ETH]", f"Price [{currency}/ETH]", f"Value [{currency}]"]
+    header = ["Date", f"Time ({tz_label})", "Type", "Validator", "Amount [ETH]", f"Price [{currency}/ETH]", f"Value [{currency}]"]
     header_font = Font(bold=True)
 
     sheet_names = sorted(events_by_month.keys())
@@ -1305,10 +1309,10 @@ def write_excel(events: List[Dict], prices: List[Tuple[int, Decimal]], account_n
 
 
 def write_excel_bytes(events: List[Dict], prices: List[Tuple[int, Decimal]], currency: str = "EUR",
-                      validator_info: Optional[List[Dict]] = None) -> bytes:
+                      validator_info: Optional[List[Dict]] = None, tz_label: str = "UTC") -> bytes:
     """Generate Excel report in memory and return as bytes."""
     import io
-    wb = _build_excel_workbook(events, prices, currency, validator_info=validator_info)
+    wb = _build_excel_workbook(events, prices, currency, validator_info=validator_info, tz_label=tz_label)
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()

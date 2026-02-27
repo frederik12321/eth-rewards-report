@@ -275,6 +275,12 @@
                         <label>CoinGecko API Key <span class="optional-tag">(optional)</span></label>
                         <input type="password" name="coingecko_api_key" maxlength="40" placeholder="Required for SEK, NOK, DKK" autocomplete="off">
                         <p class="hint">Free demo key for Nordic currencies. <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+
+                        <label>Timezone <span class="optional-tag">(default: UTC)</span></label>
+                        <select name="timezone" id="tzSelect">
+                            <option value="UTC">UTC</option>
+                        </select>
+                        <p class="hint">Dates and times in the report will use this timezone</p>
                     </div>
                 </div>
 
@@ -316,6 +322,25 @@
         let currentJobId = null;
         let currentFilename = null;
 
+        // Populate timezone dropdown (UTC default, manual selection)
+        (function initTimezones() {
+            const tzSelect = document.getElementById('tzSelect');
+            const zones = [
+                'UTC',
+                'Europe/London', 'Europe/Brussels', 'Europe/Berlin', 'Europe/Paris',
+                'Europe/Amsterdam', 'Europe/Zurich', 'Europe/Stockholm', 'Europe/Oslo',
+                'Europe/Copenhagen', 'Europe/Helsinki', 'Europe/Vienna', 'Europe/Rome',
+                'Europe/Madrid', 'Europe/Lisbon', 'Europe/Athens', 'Europe/Bucharest',
+                'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles',
+                'America/Toronto', 'America/Vancouver', 'America/Sao_Paulo',
+                'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Dubai', 'Asia/Kolkata',
+                'Australia/Sydney', 'Australia/Melbourne', 'Pacific/Auckland',
+            ];
+            tzSelect.innerHTML = zones.map(tz =>
+                `<option value="${tz}">${tz.replace(/_/g, ' ')}</option>`
+            ).join('');
+        })();
+
         // --- XSS protection: escape all user/server strings before innerHTML ---
         function esc(s) {
             const d = document.createElement('div');
@@ -330,6 +355,7 @@
                 currency: document.querySelector('[name="currency"]').value,
                 output_format: document.querySelector('[name="output_format"]').value,
                 auto_download: document.querySelector('[name="auto_download"]').checked,
+                timezone: document.querySelector('[name="timezone"]').value,
             }));
             // Addresses are not cached for privacy
         }
@@ -342,6 +368,7 @@
                 if (c.currency) document.querySelector('[name="currency"]').value = c.currency;
                 if (c.output_format) document.querySelector('[name="output_format"]').value = c.output_format;
                 if (c.auto_download) document.querySelector('[name="auto_download"]').checked = c.auto_download;
+                if (c.timezone) document.querySelector('[name="timezone"]').value = c.timezone;
             } catch(e) {}
             // Clear any previously stored addresses (legacy cleanup)
             try { sessionStorage.removeItem(SENSITIVE_KEY); } catch(e) {}
@@ -657,6 +684,7 @@
                 etherscan_api_key: formData.get('etherscan_api_key'),
                 cryptocompare_api_key: formData.get('cryptocompare_api_key') || '',
                 coingecko_api_key: formData.get('coingecko_api_key') || '',
+                timezone: formData.get('timezone') || 'UTC',
             };
 
             try {
