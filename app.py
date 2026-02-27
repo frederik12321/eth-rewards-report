@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """Web UI for the ETH Rewards Report generator.
 
-Hardened for public deployment (Railway) using NIST CSF principles:
-- Rate limiting and concurrency control (PROTECT)
-- Thread-safe logging via callback pattern (PROTECT)
-- Error sanitization — no tracebacks to clients (PROTECT)
-- HTTPS enforcement and HSTS (PROTECT)
-- Nonce-based CSP for scripts; unsafe-inline for styles (PROTECT)
-- Health check endpoint (DETECT)
-- SSE heartbeat for proxy keepalive (DETECT)
-- Structured logging with request IDs (DETECT)
-- Periodic job cleanup (RECOVER)
+Security & reliability measures:
+- Rate limiting and concurrency control
+- Thread-safe logging via callback pattern
+- Error sanitization — no tracebacks to clients
+- HTTPS enforcement and HSTS
+- Nonce-based CSP for scripts and styles
+- Health check endpoint
+- SSE heartbeat for proxy keepalive
+- Structured logging with request IDs
+- Periodic job cleanup
 """
 
 import io
