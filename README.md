@@ -11,7 +11,7 @@ Calculate your Ethereum staking rewards. Fetches consensus layer withdrawals and
 - **Consensus withdrawals** — fetches all validator withdrawals from Etherscan
 - **Execution rewards** — detects local block proposals and MEV payments (40+ known builders)
 - **Fiat pricing** — hourly ETH prices in 10 currencies (EUR, USD, GBP, CHF, CAD, AUD, JPY, SEK, NOK, DKK)
-- **0x02 compounding validators** — correctly separates reward skimming from principal returns
+- **0x02 compounding validators** — separates reward skimming from principal returns (see limitation below)
 - **Multiple validators** — enter a withdrawal address, comma-separated indices, or a public key
 - **Export formats** — Excel (.xlsx), CSV, or both
 - **In-browser summary** — monthly breakdown chart, validator overview, and totals before downloading
@@ -52,6 +52,16 @@ Optional environment variables (all have sensible defaults):
 4. Execution layer rewards are detected by scanning block proposals and matching against known MEV builder addresses
 5. Hourly ETH prices are fetched for the date range
 6. All events are priced in your chosen currency and exported to Excel/CSV
+
+## ⚠️ 0x02 compounding validator limitation
+
+This tool uses **withdrawal-based (cash-basis) reporting**: it only captures rewards when ETH is actually withdrawn to your address. For 0x02 compounding validators, rewards accumulate silently inside the validator's balance without generating any on-chain withdrawal event. This means:
+
+- **Compounding rewards are not captured** until the balance exceeds 2048 ETH (auto-sweep) or you explicitly request a withdrawal (EIP-7002)
+- A validator compounding from 32 → 40 ETH will show **zero income** in the report for that period
+- This makes the tool **unsuitable for 0x02 validators** if your jurisdiction requires accrual-based reporting
+
+The tool works correctly for **0x01 (distributing) validators**, which automatically sweep rewards to your address roughly every 5 days.
 
 ## Security
 
