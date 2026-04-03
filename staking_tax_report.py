@@ -342,7 +342,7 @@ class EtherscanClient:
         self.log(f"    Found {len(candidate_txs)} candidate transactions (regular + internal)")
 
         # --- Step 3: Classify candidates as MEV ---
-        mev_rewards = {}
+        mev_rewards = []
         block_cache = {}
         builder_hits = 0
         lookup_hits = 0
@@ -364,12 +364,12 @@ class EtherscanClient:
                     lookup_hits += 1
 
             if is_mev:
-                mev_rewards[bn] = {
+                mev_rewards.append({
                     "timestamp": ts,
                     "block_number": bn,
                     "amount_eth": Decimal(value_str) / WEI_PER_ETH,
                     "type": "block_reward",
-                }
+                })
 
             if (i + 1) % 10 == 0 or (i + 1) == len(candidate_txs):
                 self.log(f"    Checked {i + 1}/{len(candidate_txs)} transactions ({len(mev_rewards)} MEV found so far)")
@@ -377,7 +377,7 @@ class EtherscanClient:
         self.log(f"    Found {len(mev_rewards)} MEV block rewards ({builder_hits} via known builders, {lookup_hits} via block lookup)")
 
         # --- Step 4: Combine local + MEV ---
-        all_rewards = list(local_blocks.values()) + list(mev_rewards.values())
+        all_rewards = list(local_blocks.values()) + mev_rewards
         all_rewards.sort(key=lambda x: x["timestamp"])
         self.log(f"  Total execution rewards: {len(all_rewards)} ({len(local_blocks)} local + {len(mev_rewards)} MEV)")
         return all_rewards
@@ -1366,7 +1366,11 @@ def gather_events(
 
         # Fetch EIP-7251 consolidation events to exclude consolidation transfers
         consolidations = etherscan.get_consolidation_events(withdrawal_address, start_ts, end_ts)
-        consolidated_pubkeys = {c["source_pubkey"] for c in consolidations if not c["is_upgrade"]}
+        # Map source pubkey → consolidation timestamp (only merges, not upgrades)
+        consolidation_ts_by_pubkey = {}
+        for c in consolidations:
+            if not c["is_upgrade"]:
+                consolidation_ts_by_pubkey[c["source_pubkey"]] = c["timestamp"]
 
         income_count = 0
         principal_count = 0
@@ -1377,10 +1381,13 @@ def gather_events(
             pubkey = validator_pubkeys.get(vid, "").lower()
 
             # Check if this validator was consolidated (source of a merge)
-            if pubkey and pubkey in consolidated_pubkeys:
-                w["type"] = "withdrawal_principal"
-                consolidated_count += 1
-                continue
+            # Only mark as principal if the consolidation happened BEFORE the withdrawal
+            if pubkey and pubkey in consolidation_ts_by_pubkey:
+                if consolidation_ts_by_pubkey[pubkey] <= w["timestamp"]:
+                    w["type"] = "withdrawal_principal"
+                    consolidated_count += 1
+                    continue
+                # Withdrawal before consolidation = normal income, fall through
 
             # Check if there's a matching EIP-7002 withdrawal request
             if pubkey and pubkey in withdrawal_requests:
