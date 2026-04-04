@@ -83,6 +83,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 # Environment-based config
 _MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
 _PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db").strip().lstrip("=").strip()
+_ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
 _CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")
 _COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 _STATS_PATH = os.environ.get("STATS_PATH", os.path.join(os.path.dirname(__file__), "stats.json")).strip().lstrip("=").strip()
@@ -269,7 +270,7 @@ def set_security_headers(response):
 @app.route("/")
 def index():
     _inc_stat("page_views")
-    return render_template("index.html")
+    return render_template("index.html", has_server_etherscan_key=bool(_ETHERSCAN_API_KEY))
 
 
 @app.route("/info")
@@ -349,9 +350,9 @@ def generate():
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", date_from) or not re.match(r"^\d{4}-\d{2}-\d{2}$", date_to):
             return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
 
-        if not etherscan_api_key:
+        if not etherscan_api_key and not _ETHERSCAN_API_KEY:
             return jsonify({"error": "Etherscan API key is required (free at etherscan.io/apis)"}), 400
-        if not ETHERSCAN_KEY_RE.match(etherscan_api_key):
+        if etherscan_api_key and not ETHERSCAN_KEY_RE.match(etherscan_api_key):
             return jsonify({"error": "Invalid Etherscan API key format"}), 400
 
         if currency not in SUPPORTED_CURRENCIES:
@@ -482,7 +483,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
         ).timestamp())
 
         # Init clients with log callback
-        etherscan = EtherscanClient(etherscan_api_key, log_fn=log_fn)
+        etherscan = EtherscanClient(etherscan_api_key or _ETHERSCAN_API_KEY, log_fn=log_fn)
         price_client = CryptoCompareClient(
             currency=currency, cache_path=_PRICE_CACHE_PATH, log_fn=log_fn,
             api_key=cryptocompare_api_key or _CRYPTOCOMPARE_API_KEY,

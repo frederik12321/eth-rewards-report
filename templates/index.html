@@ -263,6 +263,7 @@
                     </label>
                 </div>
 
+                {% if not has_server_etherscan_key %}
                 <div class="card">
                     <h2>API Keys</h2>
                     <label>Etherscan API Key</label>
@@ -270,12 +271,19 @@
                     <p class="hint"><a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get a free key here</a></p>
                     <div class="field-error" data-for="etherscan_api_key"></div>
                 </div>
+                {% endif %}
 
                 <button type="button" class="adv-toggle" id="advToggle">
                     <span class="arrow">&#x25B6;</span> Advanced Options
                 </button>
                 <div class="adv-content" id="advContent">
                     <div class="card">
+                        {% if has_server_etherscan_key %}
+                        <label>Etherscan API Key <span class="optional-tag">(optional)</span></label>
+                        <input type="password" name="etherscan_api_key" maxlength="40" placeholder="Use your own key for higher rate limits" autocomplete="off">
+                        <p class="hint">Optional — a shared key is used by default. <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get your own free key</a> for faster results.</p>
+                        {% endif %}
+
                         <label>Fee recipient address <span class="optional-tag">(optional)</span></label>
                         <input type="text" name="fee_recipient" maxlength="42" pattern="^(0x[a-fA-F0-9]{40})?$" placeholder="0x... (only if different from withdrawal address)" autocomplete="off" spellcheck="false">
                         <p class="hint">Only needed if your execution layer (EL) rewards go to a different address than your withdrawal address</p>
@@ -619,7 +627,7 @@
                 return '';
             },
             etherscan_api_key(v) {
-                if (!v) return 'Required';
+                if (!v) return {{ 'true' if has_server_etherscan_key else 'false' }} ? '' : 'Required';
                 if (/^[a-zA-Z0-9]{34}$/.test(v.trim())) return '';
                 return 'Must be 34 alphanumeric characters';
             },
