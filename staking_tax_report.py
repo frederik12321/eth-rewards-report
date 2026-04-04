@@ -851,18 +851,18 @@ class BeaconchainClient:
             dt = datetime.fromisoformat(str(day_start).replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d")
 
-    def get_daily_rewards(self, validator_index: int, date_from: str, date_to: str) -> List[Dict]:
-        """Get daily reward accrual for a validator in a date range.
+    # Maximum validators per batch request (beaconcha.in supports up to 100)
+    BATCH_SIZE = 100
 
-        Returns list of dicts with keys: date, reward_gwei, timestamp.
-        Uses cache; only fetches uncached days from beaconcha.in.
+    def get_daily_rewards_batch(self, validator_indices: List[int], date_from: str, date_to: str) -> Dict[int, List[Dict]]:
+        """Get daily reward accrual for multiple validators in a date range.
+
+        Returns dict mapping validator_index -> list of dicts with keys: date, reward_gwei, timestamp.
+        Uses cache and batch API calls (up to 100 validators per request).
         """
-        # Check what's already cached
-        cached = self.cache.get_cached(validator_index, date_from, date_to)
-        cached_dates = {s["date"] for s in cached}
+        from datetime import timedelta
 
         # Generate all expected dates in range
-        from datetime import timedelta
         start_dt = datetime.strptime(date_from, "%Y-%m-%d")
         end_dt = datetime.strptime(date_to, "%Y-%m-%d")
         all_dates = set()
@@ -871,64 +871,83 @@ class BeaconchainClient:
             all_dates.add(d.strftime("%Y-%m-%d"))
             d += timedelta(days=1)
 
-        missing_dates = all_dates - cached_dates
+        # Check cache for each validator, collect those needing fetch
+        needs_fetch = []
+        cached_results: Dict[int, List[Dict]] = {}
+        for vid in validator_indices:
+            cached = self.cache.get_cached(vid, date_from, date_to)
+            cached_dates = {s["date"] for s in cached}
+            if all_dates - cached_dates:
+                needs_fetch.append(vid)
+            cached_results[vid] = cached
 
-        if missing_dates:
-            self.log(f"    Fetching daily stats for validator {validator_index} from beaconcha.in ({len(missing_dates)} days)...")
-            fetched = self._fetch_stats(validator_index)
+        if needs_fetch:
+            self.log(f"    {len(needs_fetch)} validator(s) need fresh data, {len(validator_indices) - len(needs_fetch)} fully cached")
+            # Fetch in batches of BATCH_SIZE
+            for i in range(0, len(needs_fetch), self.BATCH_SIZE):
+                batch = needs_fetch[i : i + self.BATCH_SIZE]
+                self.log(f"    Fetching batch of {len(batch)} validator(s) from beaconcha.in...")
+                fetched_by_validator = self._fetch_stats_batch(batch)
 
-            # Filter to relevant date range and compute rewards
-            new_stats = []
-            for s in fetched:
-                date_str = s["date"]
-                if date_str not in missing_dates:
-                    continue
-                new_stats.append(s)
-
-            if new_stats:
-                self.cache.store(validator_index, new_stats)
-                self.log(f"    Cached {len(new_stats)} daily stats for validator {validator_index}")
-
-            # Re-read from cache to get everything in order
-            cached = self.cache.get_cached(validator_index, date_from, date_to)
+                for vid in batch:
+                    fetched = fetched_by_validator.get(vid, [])
+                    cached_dates = {s["date"] for s in cached_results.get(vid, [])}
+                    missing_dates = all_dates - cached_dates
+                    new_stats = [s for s in fetched if s["date"] in missing_dates]
+                    if new_stats:
+                        self.cache.store(vid, new_stats)
+                    # Re-read from cache
+                    cached_results[vid] = self.cache.get_cached(vid, date_from, date_to)
 
         # Convert to output format with timestamps
-        results = []
-        for s in cached:
-            dt = datetime.strptime(s["date"], "%Y-%m-%d").replace(
-                hour=12, tzinfo=timezone.utc
-            )
-            reward_gwei = s["reward_gwei"]
-            if reward_gwei > 0:
-                results.append({
-                    "date": s["date"],
-                    "reward_gwei": reward_gwei,
-                    "timestamp": int(dt.timestamp()),
-                })
+        output: Dict[int, List[Dict]] = {}
+        for vid in validator_indices:
+            results = []
+            for s in cached_results.get(vid, []):
+                dt = datetime.strptime(s["date"], "%Y-%m-%d").replace(
+                    hour=12, tzinfo=timezone.utc
+                )
+                reward_gwei = s["reward_gwei"]
+                if reward_gwei > 0:
+                    results.append({
+                        "date": s["date"],
+                        "reward_gwei": reward_gwei,
+                        "timestamp": int(dt.timestamp()),
+                    })
+            output[vid] = results
 
-        return results
+        return output
 
-    def _fetch_stats(self, validator_index: int) -> List[Dict]:
-        """Fetch all daily stats for a validator from beaconcha.in.
+    def _fetch_stats_batch(self, validator_indices: List[int]) -> Dict[int, List[Dict]]:
+        """Fetch daily stats for multiple validators in one API call.
 
-        Returns list of dicts with: date, start_balance, end_balance,
-        deposits_amount, withdrawals_amount, reward_gwei.
+        beaconcha.in supports comma-separated indices: /validator/stats/{i1},{i2},...
+        Returns dict mapping validator_index -> list of parsed daily stats.
         """
-        data = self._get(f"/validator/stats/{validator_index}")
+        ids_str = ",".join(str(v) for v in validator_indices)
+        data = self._get(f"/validator/stats/{ids_str}")
 
         if not data:
-            self.log(f"    Warning: beaconcha.in returned empty response for validator {validator_index}")
-            return []
+            self.log(f"    Warning: beaconcha.in returned empty response for batch of {len(validator_indices)} validators")
+            return {}
         if data.get("status") != "OK":
-            self.log(f"    Warning: beaconcha.in returned status={data.get('status', '?')}, message={data.get('message', '?')} for validator {validator_index}")
-            return []
+            self.log(f"    Warning: beaconcha.in returned status={data.get('status', '?')}, message={data.get('message', '?')}")
+            return {}
 
         entries = data.get("data", [])
-        self.log(f"    beaconcha.in returned {len(entries)} daily entries for validator {validator_index}")
-        results = []
+        if not isinstance(entries, list):
+            entries = [entries]
+        self.log(f"    beaconcha.in returned {len(entries)} daily entries for {len(validator_indices)} validator(s)")
+
+        # Parse entries and group by validator index
+        results: Dict[int, List[Dict]] = {v: [] for v in validator_indices}
         for entry in entries:
             day_start = entry.get("day_start", "")
             if not day_start:
+                continue
+
+            vid = int(entry.get("validatorindex") or 0)
+            if vid not in results:
                 continue
 
             date_str = self._day_to_date(day_start)
@@ -941,7 +960,7 @@ class BeaconchainClient:
             # (balance goes down by withdrawals, up by deposits — we reverse those)
             reward_gwei = (end_bal - start_bal) - deposits + withdrawals
 
-            results.append({
+            results[vid].append({
                 "date": date_str,
                 "start_balance": start_bal,
                 "end_balance": end_bal,
@@ -1675,8 +1694,9 @@ def gather_events(
         log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(accrual_indices)} validator(s)...")
         bcc = BeaconchainClient(api_key=beaconchain_api_key, cache_path=cache_path, log_fn=log)
         try:
+            rewards_by_validator = bcc.get_daily_rewards_batch(accrual_indices, date_from, date_to)
             for vid in accrual_indices:
-                daily = bcc.get_daily_rewards(vid, date_from, date_to)
+                daily = rewards_by_validator.get(vid, [])
                 for d in daily:
                     accrual_events.append({
                         "timestamp": d["timestamp"],
