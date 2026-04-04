@@ -932,10 +932,10 @@ class BeaconchainClient:
                 continue
 
             date_str = self._day_to_date(day_start)
-            start_bal = int(entry.get("start_balance", 0))
-            end_bal = int(entry.get("end_balance", 0))
-            deposits = int(entry.get("deposits_amount", 0))
-            withdrawals = int(entry.get("withdrawals_amount", 0))
+            start_bal = int(entry.get("start_balance") or 0)
+            end_bal = int(entry.get("end_balance") or 0)
+            deposits = int(entry.get("deposits_amount") or 0)
+            withdrawals = int(entry.get("withdrawals_amount") or 0)
 
             # Daily reward = balance change - deposits + withdrawals
             # (balance goes down by withdrawals, up by deposits — we reverse those)

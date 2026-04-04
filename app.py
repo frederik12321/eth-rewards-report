@@ -179,7 +179,9 @@ def _sanitize_error(exc):
         return "Could not connect to an external API. Please try again later."
     if "price data" in msg or "cryptocompare" in msg:
         return "Could not fetch price data. Please try again later."
-    return "An unexpected error occurred while generating your report. Please try again."
+    # Include the error type for easier debugging while keeping it user-friendly
+    err_type = type(exc).__name__
+    return f"An unexpected error occurred ({err_type}). Please try again or report this issue."
 
 
 # ---------------------------------------------------------------------------
