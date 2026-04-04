@@ -1688,8 +1688,19 @@ def gather_events(
                     log(f"    Validator {vid}: {len(daily)} days with positive accrual rewards")
         finally:
             bcc.close()
+        # Aggregate accrual events by date across all validators
         if accrual_events:
-            log(f"  Total accrual events: {len(accrual_events)}")
+            log(f"  Total raw accrual events: {len(accrual_events)} (across {len(accrual_indices)} validators)")
+            daily_totals: Dict[int, Decimal] = {}  # timestamp -> total ETH
+            for ev in accrual_events:
+                ts = ev["timestamp"]
+                daily_totals[ts] = daily_totals.get(ts, Decimal(0)) + ev["amount_eth"]
+            accrual_events = [
+                {"timestamp": ts, "amount_eth": amt, "type": "accrual", "validator": "all"}
+                for ts, amt in sorted(daily_totals.items())
+                if amt > 0
+            ]
+            log(f"  Aggregated to {len(accrual_events)} daily accrual events")
 
     # Step 3: Fetch execution rewards (local blocks + MEV) from Etherscan
     # Use fee_recipient address if provided (can differ from withdrawal address)
