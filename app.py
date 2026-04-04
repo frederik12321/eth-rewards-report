@@ -165,6 +165,8 @@ def _sanitize_error(exc):
     msg = str(exc).lower()
     if "rate limit" in msg:
         return "Etherscan rate limit exceeded. Please wait a moment and try again."
+    if "beaconcha.in" in msg:
+        return str(exc)  # beaconcha.in errors are already user-facing
     if "api key" in msg:
         return "Etherscan API key error. Please verify your API key is correct."
     if "not found" in msg and "validator" in msg:
@@ -504,7 +506,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
         # Gather all events
         all_events = []
         for account in accounts:
-            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode)
+            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode, cache_path=_PRICE_CACHE_PATH)
             all_events.extend(events)
 
         if not all_events:

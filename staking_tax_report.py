@@ -840,12 +840,15 @@ class BeaconchainClient:
                 time.sleep(5 * (attempt + 1))
         return {}
 
-    def _day_to_date(self, day_start_str: str) -> str:
-        """Convert beaconcha.in day_start timestamp to YYYY-MM-DD."""
-        # day_start is RFC 3339: "2025-06-15T12:00:23Z"
-        # We take the date part. Note: beacon chain days start at 12:00:23 UTC
-        # so the "date" of a beacon day is the calendar date of its start time.
-        dt = datetime.fromisoformat(day_start_str.replace("Z", "+00:00"))
+    def _day_to_date(self, day_start) -> str:
+        """Convert beaconcha.in day_start to YYYY-MM-DD.
+
+        day_start can be RFC 3339 string ("2025-06-15T12:00:23Z") or unix timestamp (int).
+        """
+        if isinstance(day_start, (int, float)):
+            dt = datetime.fromtimestamp(int(day_start), tz=timezone.utc)
+        else:
+            dt = datetime.fromisoformat(str(day_start).replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d")
 
     def get_daily_rewards(self, validator_index: int, date_from: str, date_to: str) -> List[Dict]:
@@ -1586,6 +1589,7 @@ def gather_events(
     log_fn=None,
     beaconchain_api_key: str = "",
     reporting_mode: str = "withdrawal",
+    cache_path: str = "price_cache.db",
 ) -> List[Dict]:
     """Fetch all staking events for an account. Returns raw event list (no file I/O)."""
     log = log_fn or print
@@ -1669,7 +1673,7 @@ def gather_events(
         date_from = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         date_to = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(accrual_indices)} validator(s)...")
-        bcc = BeaconchainClient(api_key=beaconchain_api_key, log_fn=log)
+        bcc = BeaconchainClient(api_key=beaconchain_api_key, cache_path=cache_path, log_fn=log)
         try:
             for vid in accrual_indices:
                 daily = bcc.get_daily_rewards(vid, date_from, date_to)
