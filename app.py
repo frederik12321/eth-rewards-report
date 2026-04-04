@@ -156,6 +156,12 @@ def _log_to_job(job, message):
         job["logs"].append(str(message).rstrip())
 
 
+def _set_progress(job, pct):
+    """Thread-safe progress update (0-100)."""
+    with job["lock"]:
+        job["progress"] = min(100, max(0, int(pct)))
+
+
 # ---------------------------------------------------------------------------
 # Error sanitization — never expose tracebacks to clients
 # ---------------------------------------------------------------------------
@@ -405,6 +411,7 @@ def generate():
         job = {
             "status": "running",
             "logs": [],
+            "progress": 0,
             "file_path": None,
             "filename": None,
             "mimetype": None,
@@ -440,10 +447,12 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
     """Background thread: resolve validators, fetch data, generate report."""
     # Thread-safe log callback (no sys.stdout hijacking)
     log_fn = lambda msg: _log_to_job(job, msg)
+    progress_fn = lambda pct: _set_progress(job, pct)
     price_client = None
     user_tz = ZoneInfo(tz_name)
     try:
         # --- Resolve validator/address input (moved here from /generate) ---
+        progress_fn(5)
         acc = {"name": "report"}
         if parsed["type"] == "withdrawal_address":
             acc["withdrawal_address"] = parsed["value"]
@@ -496,6 +505,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
             verbose_sources=bool(cryptocompare_api_key or coingecko_api_key),
         )
 
+        progress_fn(10)
         log_fn(f"Fetching ETH/{currency} prices...")
         prices = price_client.get_prices(start_ts, end_ts)
 
@@ -506,9 +516,10 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
             return
 
         # Gather all events
+        progress_fn(20)
         all_events = []
         for account in accounts:
-            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode, cache_path=_PRICE_CACHE_PATH)
+            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode, cache_path=_PRICE_CACHE_PATH, progress_fn=progress_fn, progress_range=(20, 80))
             all_events.extend(events)
 
         if not all_events:
@@ -524,6 +535,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
                 job["error"] = f"Too many events ({len(all_events):,}). Please use a shorter date range."
             return
 
+        progress_fn(85)
         _prepare_events(all_events, prices, tz=user_tz)
         validator_info = _build_validator_info(accounts, all_events)
         summary = _build_summary(all_events, validator_info, currency)
@@ -536,6 +548,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
             safe_name = f"{len(accounts)}_accounts"
         filename_base = f"staking_report_{safe_name}_{date_from}_{date_to}"
 
+        progress_fn(90)
         log_fn("Generating report file...")
         if output_format == "xlsx":
             file_bytes = write_excel_bytes(all_events, prices, currency, validator_info=validator_info, tz_label=tz_name)
@@ -561,6 +574,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
         tmp.write(file_bytes)
         tmp.close()
 
+        progress_fn(100)
         log_fn("Report ready for download.")
         _inc_stat("reports_completed")
         with job["lock"]:
@@ -720,16 +734,22 @@ def stream(job_id):
 
     def event_stream():
         sent = 0
+        last_progress = -1
         last_heartbeat = time.time()
         while True:
             with job["lock"]:
                 status = job["status"]
                 logs = job["logs"][sent:]
                 error = job["error"]
+                progress = job.get("progress", 0)
 
             for line in logs:
                 yield f"data: {json.dumps({'type': 'log', 'message': line})}\n\n"
                 sent += 1
+
+            if progress != last_progress:
+                yield f"data: {json.dumps({'type': 'progress', 'percent': progress})}\n\n"
+                last_progress = progress
 
             if status == "done":
                 yield f"data: {json.dumps({'type': 'done', 'filename': job['filename'], 'summary': job.get('summary')})}\n\n"

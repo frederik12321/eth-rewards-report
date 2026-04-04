@@ -854,12 +854,14 @@ class BeaconchainClient:
     # Maximum validators per batch request (beaconcha.in supports up to 100)
     BATCH_SIZE = 100
 
-    def get_daily_rewards_batch(self, validator_indices: List[int], date_from: str, date_to: str) -> Dict[int, List[Dict]]:
+    def get_daily_rewards_batch(self, validator_indices: List[int], date_from: str, date_to: str, progress_fn=None) -> Dict[int, List[Dict]]:
         """Get daily reward accrual for multiple validators in a date range.
 
         Returns dict mapping validator_index -> list of dicts with keys: date, reward_gwei, timestamp.
         Uses cache and batch API calls (up to 100 validators per request).
+        progress_fn: optional callback(fraction) with fraction 0.0-1.0
         """
+        _progress = progress_fn or (lambda f: None)
         from datetime import timedelta
 
         # Generate all expected dates in range
@@ -883,10 +885,11 @@ class BeaconchainClient:
 
         if needs_fetch:
             self.log(f"    {len(needs_fetch)} validator(s) need fresh data, {len(validator_indices) - len(needs_fetch)} fully cached")
+            total_batches = (len(needs_fetch) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
             # Fetch in batches of BATCH_SIZE
-            for i in range(0, len(needs_fetch), self.BATCH_SIZE):
+            for batch_idx, i in enumerate(range(0, len(needs_fetch), self.BATCH_SIZE)):
                 batch = needs_fetch[i : i + self.BATCH_SIZE]
-                self.log(f"    Fetching batch of {len(batch)} validator(s) from beaconcha.in...")
+                self.log(f"    Fetching batch {batch_idx + 1}/{total_batches} ({len(batch)} validators) from beaconcha.in...")
                 fetched_by_validator = self._fetch_stats_batch(batch)
 
                 for vid in batch:
@@ -898,6 +901,10 @@ class BeaconchainClient:
                         self.cache.store(vid, new_stats)
                     # Re-read from cache
                     cached_results[vid] = self.cache.get_cached(vid, date_from, date_to)
+
+                _progress((batch_idx + 1) / total_batches)
+        else:
+            _progress(1.0)
 
         # Convert to output format with timestamps
         output: Dict[int, List[Dict]] = {}
@@ -1609,9 +1616,13 @@ def gather_events(
     beaconchain_api_key: str = "",
     reporting_mode: str = "withdrawal",
     cache_path: str = "price_cache.db",
+    progress_fn=None,
+    progress_range: Tuple[int, int] = (0, 100),
 ) -> List[Dict]:
     """Fetch all staking events for an account. Returns raw event list (no file I/O)."""
     log = log_fn or print
+    _progress = progress_fn or (lambda pct: None)
+    _p_start, _p_end = progress_range
     name = account["name"]
     log(f"\nProcessing account: {name}")
 
@@ -1623,7 +1634,12 @@ def gather_events(
             "This is the address that receives your staking rewards."
         )
 
+    def _p(frac):
+        """Report progress as fraction (0.0-1.0) within our assigned range."""
+        _progress(int(_p_start + frac * (_p_end - _p_start)))
+
     # Step 1: Fetch withdrawals from Etherscan
+    _p(0.0)
     log("  Fetching withdrawals...")
     withdrawals = etherscan.get_beacon_withdrawals(withdrawal_address, start_ts, end_ts)
 
@@ -1636,6 +1652,7 @@ def gather_events(
         withdrawals = filtered
 
     # Step 2: For 0x02 validators, classify withdrawals as income vs principal
+    _p(0.15)
     credential_type = account.get("credential_type", "0x01")
     validator_pubkeys = account.get("validator_pubkeys", {})  # {index: pubkey}
 
@@ -1681,6 +1698,7 @@ def gather_events(
         log(f"  Classification: {income_count} income (skimming), {principal_count} principal (user-requested), {consolidated_count} consolidation")
 
     # Step 2b: In accrual mode, fetch daily rewards from beaconcha.in
+    _p(0.25)
     accrual_events = []
     # Resolve validator indices for accrual mode if only a withdrawal address was given
     accrual_indices = validator_indices
@@ -1694,7 +1712,10 @@ def gather_events(
         log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(accrual_indices)} validator(s)...")
         bcc = BeaconchainClient(api_key=beaconchain_api_key, cache_path=cache_path, log_fn=log)
         try:
-            rewards_by_validator = bcc.get_daily_rewards_batch(accrual_indices, date_from, date_to)
+            def _accrual_progress(frac):
+                # Accrual fetch spans 0.25-0.80 of our progress range
+                _p(0.25 + frac * 0.55)
+            rewards_by_validator = bcc.get_daily_rewards_batch(accrual_indices, date_from, date_to, progress_fn=_accrual_progress)
             for vid in accrual_indices:
                 daily = rewards_by_validator.get(vid, [])
                 for d in daily:
@@ -1723,10 +1744,11 @@ def gather_events(
             log(f"  Aggregated to {len(accrual_events)} daily accrual events")
 
     # Step 3: Fetch execution rewards (local blocks + MEV) from Etherscan
-    # Use fee_recipient address if provided (can differ from withdrawal address)
+    _p(0.85)
     fee_recipient = account.get("fee_recipient", "") or withdrawal_address
     log(f"  Fetching execution layer rewards (local blocks + MEV) for {fee_recipient[:10]}...{fee_recipient[-4:]}...")
     block_rewards = etherscan.get_execution_rewards(fee_recipient, start_ts, end_ts)
+    _p(1.0)
 
     # Tag block rewards with validator index when a single validator is queried
     if validator_indices and len(validator_indices) == 1:
