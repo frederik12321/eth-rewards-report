@@ -1621,10 +1621,12 @@ def gather_events(
     cache_path: str = "price_cache.db",
     progress_fn=None,
     progress_range: Tuple[int, int] = (0, 100),
+    timeout_fn=None,
 ) -> List[Dict]:
     """Fetch all staking events for an account. Returns raw event list (no file I/O)."""
     log = log_fn or print
     _progress = progress_fn or (lambda pct: None)
+    _timeout = timeout_fn or (lambda n: None)
     _p_start, _p_end = progress_range
     name = account["name"]
     log(f"\nProcessing account: {name}")
@@ -1710,6 +1712,7 @@ def gather_events(
         if accrual_indices:
             log(f"  Discovered {len(accrual_indices)} validator(s) from withdrawal history for accrual mode")
     if reporting_mode == "accrual" and beaconchain_api_key and accrual_indices:
+        _timeout(len(accrual_indices))
         date_from = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         date_to = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(accrual_indices)} validator(s)...")

@@ -123,10 +123,10 @@ _job_semaphore = threading.Semaphore(_MAX_CONCURRENT_JOBS)
 
 
 def _cleanup_old_jobs():
-    """Remove jobs older than 10 minutes (safety net for undownloaded reports)."""
+    """Remove jobs that have exceeded their max_age (default 10 min, extended for large jobs)."""
     now = time.time()
     with _jobs_lock:
-        expired = [jid for jid, j in _jobs.items() if now - j["created"] > 600]
+        expired = [jid for jid, j in _jobs.items() if now - j["created"] > j.get("max_age", 600)]
         for jid in expired:
             # Clean up temp file if it was never downloaded
             fp = _jobs[jid].get("file_path")
@@ -517,9 +517,13 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
 
         # Gather all events
         progress_fn(20)
+        def _extend_timeout(n_validators):
+            """Extend job max_age based on validator count (10s per validator + 5 min base)."""
+            with job["lock"]:
+                job["max_age"] = max(job.get("max_age", 600), 300 + n_validators * 10)
         all_events = []
         for account in accounts:
-            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode, cache_path=_PRICE_CACHE_PATH, progress_fn=progress_fn, progress_range=(20, 80))
+            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode, cache_path=_PRICE_CACHE_PATH, progress_fn=progress_fn, progress_range=(20, 80), timeout_fn=_extend_timeout)
             all_events.extend(events)
 
         if not all_events:
