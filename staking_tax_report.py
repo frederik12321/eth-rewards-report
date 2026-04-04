@@ -851,8 +851,8 @@ class BeaconchainClient:
             dt = datetime.fromisoformat(str(day_start).replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d")
 
-    # Maximum validators per batch request (beaconcha.in supports up to 100)
-    BATCH_SIZE = 100
+    # Maximum validators per batch request (beaconcha.in stats endpoint limit)
+    BATCH_SIZE = 10
 
     def get_daily_rewards_batch(self, validator_indices: List[int], date_from: str, date_to: str, progress_fn=None) -> Dict[int, List[Dict]]:
         """Get daily reward accrual for multiple validators in a date range.
