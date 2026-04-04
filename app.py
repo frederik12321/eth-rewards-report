@@ -84,6 +84,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1)
 _MAX_CONCURRENT_JOBS = int(os.environ.get("MAX_CONCURRENT_JOBS", "5"))
 _PRICE_CACHE_PATH = os.environ.get("PRICE_CACHE_PATH", "price_cache.db").strip().lstrip("=").strip()
 _ETHERSCAN_API_KEY = os.environ.get("ETHERSCAN_API_KEY", "")
+_BEACONCHAIN_API_KEY = os.environ.get("BEACONCHAIN_API_KEY", "")
 _CRYPTOCOMPARE_API_KEY = os.environ.get("CRYPTOCOMPARE_API_KEY", "")
 _COINGECKO_API_KEY = os.environ.get("COINGECKO_API_KEY", "")
 _STATS_PATH = os.environ.get("STATS_PATH", os.path.join(os.path.dirname(__file__), "stats.json")).strip().lstrip("=").strip()
@@ -270,7 +271,7 @@ def set_security_headers(response):
 @app.route("/")
 def index():
     _inc_stat("page_views")
-    return render_template("index.html", has_server_etherscan_key=bool(_ETHERSCAN_API_KEY))
+    return render_template("index.html", has_server_etherscan_key=bool(_ETHERSCAN_API_KEY), has_server_beaconchain_key=bool(_BEACONCHAIN_API_KEY))
 
 
 @app.route("/info")
@@ -503,7 +504,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
         # Gather all events
         all_events = []
         for account in accounts:
-            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key, reporting_mode=reporting_mode)
+            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key or _BEACONCHAIN_API_KEY, reporting_mode=reporting_mode)
             all_events.extend(events)
 
         if not all_events:

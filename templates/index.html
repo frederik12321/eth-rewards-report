@@ -298,8 +298,8 @@
                         <p class="hint">Free demo key for Nordic currencies. <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
 
                         <label>Beaconcha.in API Key <span class="optional-tag">(optional)</span></label>
-                        <input type="password" name="beaconchain_api_key" maxlength="80" placeholder="Required for 0x02 compounding validator accrual rewards" autocomplete="off">
-                        <p class="hint">Enables daily reward accrual tracking for compounding validators. <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get a free key here</a></p>
+                        <input type="password" name="beaconchain_api_key" maxlength="80" placeholder="{% if has_server_beaconchain_key %}Use your own key for higher rate limits{% else %}Required for accrual-based reporting{% endif %}" autocomplete="off">
+                        <p class="hint">{% if has_server_beaconchain_key %}Optional — a shared key is used by default. <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get your own free key</a> for faster results.{% else %}Enables daily reward accrual tracking for compounding validators. <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get a free key here</a>{% endif %}</p>
 
                         <label>Timezone <span class="optional-tag">(default: UTC)</span></label>
                         <select name="timezone" id="tzSelect">
@@ -564,6 +564,7 @@
         }
 
         // --- Reporting mode toggle ---
+        const hasServerBeaconchainKey = {{ 'true' if has_server_beaconchain_key else 'false' }};
         const accrualHint = document.getElementById('accrualHint');
         const modeHintText = document.getElementById('modeHintText');
         const modeHidden = document.querySelector('input[name="reporting_mode"]');
@@ -575,7 +576,7 @@
             modeHidden.value = mode;
             document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
             modeHintText.textContent = modeDescriptions[mode];
-            const hasKey = !!document.querySelector('[name="beaconchain_api_key"]').value;
+            const hasKey = hasServerBeaconchainKey || !!document.querySelector('[name="beaconchain_api_key"]').value;
             accrualHint.style.display = (mode === 'accrual' && !hasKey) ? 'block' : 'none';
             if (mode === 'accrual' && !hasKey) {
                 advToggle.classList.add('open');
@@ -592,7 +593,7 @@
         const bcKeyInput = document.querySelector('[name="beaconchain_api_key"]');
         if (bcKeyInput) {
             bcKeyInput.addEventListener('input', function() {
-                accrualHint.style.display = (modeHidden.value === 'accrual' && !this.value) ? 'block' : 'none';
+                accrualHint.style.display = (modeHidden.value === 'accrual' && !hasServerBeaconchainKey && !this.value) ? 'block' : 'none';
             });
         }
         // Sync on page load (in case accrual was restored from localStorage)
@@ -729,7 +730,7 @@
             }
             // Require beaconchain key for accrual mode
             const formData = new FormData(this);
-            if (formData.get('reporting_mode') === 'accrual' && !formData.get('beaconchain_api_key')) {
+            if (formData.get('reporting_mode') === 'accrual' && !hasServerBeaconchainKey && !formData.get('beaconchain_api_key')) {
                 accrualHint.style.display = 'block';
                 advToggle.classList.add('open');
                 advContent.classList.add('open');
