@@ -843,8 +843,9 @@ class BeaconchainClient:
 
     def _throttle(self):
         elapsed = time.monotonic() - self._last_call
-        if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
+        wait = self._min_interval - elapsed
+        if wait > 0:
+            time.sleep(wait)
         self._last_call = time.monotonic()
 
     def _get(self, path: str, params: dict = None) -> dict:
@@ -857,15 +858,15 @@ class BeaconchainClient:
         for attempt in range(3):
             self._throttle()
             try:
-                resp = self._session.get(url, params=p, timeout=30)
+                resp = self._session.get(url, params=p, timeout=60)
                 if resp.status_code == 401:
                     raise RuntimeError(
                         "beaconcha.in API returned 401 Unauthorized. "
                         "Please check your beaconcha.in API key is valid."
                     )
                 if resp.status_code == 429:
-                    wait = 15 * (attempt + 1)
-                    self.log(f"    Rate limited by beaconcha.in, waiting {wait}s...")
+                    wait = 10 * (attempt + 1)
+                    self.log(f"    Rate limited by beaconcha.in (attempt {attempt + 1}/3), waiting {wait}s...")
                     time.sleep(wait)
                     continue
                 resp.raise_for_status()
@@ -875,7 +876,9 @@ class BeaconchainClient:
             except requests.RequestException as e:
                 if attempt == 2:
                     raise RuntimeError(f"beaconcha.in API error: {e}")
-                time.sleep(5 * (attempt + 1))
+                wait = 5 * (attempt + 1)
+                self.log(f"    beaconcha.in request failed ({e}), retrying in {wait}s...")
+                time.sleep(wait)
         return {}
 
     def _day_to_date(self, day_start) -> str:
@@ -919,9 +922,22 @@ class BeaconchainClient:
             cached_results[vid] = cached
 
         if needs_fetch:
-            self.log(f"    {len(needs_fetch)} validator(s) need fresh data, {len(validator_indices) - len(needs_fetch)} fully cached")
+            n = len(needs_fetch)
+            est_seconds = n * (self._min_interval + 2)  # throttle + response time
+            est_min = int(est_seconds // 60)
+            est_sec = int(est_seconds % 60)
+            self.log(f"    {n} validator(s) need fresh data, {len(validator_indices) - n} fully cached")
+            self.log(f"    Estimated time: ~{est_min}m {est_sec}s (rate limit: {self._min_interval}s between requests)")
+            fetch_start = time.monotonic()
             for idx, vid in enumerate(needs_fetch):
-                self.log(f"    Fetching validator {vid} ({idx + 1}/{len(needs_fetch)})...")
+                remaining = n - idx
+                elapsed = time.monotonic() - fetch_start
+                if idx > 0:
+                    per_val = elapsed / idx
+                    eta = int(remaining * per_val)
+                    self.log(f"    Fetching validator {vid} ({idx + 1}/{n}, ~{eta}s remaining)...")
+                else:
+                    self.log(f"    Fetching validator {vid} ({idx + 1}/{n})...")
                 fetched = self._fetch_stats(vid)
 
                 cached_dates = {s["date"] for s in cached_results.get(vid, [])}
@@ -932,7 +948,7 @@ class BeaconchainClient:
                 # Re-read from cache
                 cached_results[vid] = self.cache.get_cached(vid, date_from, date_to)
 
-                _progress((idx + 1) / len(needs_fetch))
+                _progress((idx + 1) / n)
         else:
             self.log(f"    All {len(validator_indices)} validator(s) fully cached")
             _progress(1.0)
