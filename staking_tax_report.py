@@ -1536,16 +1536,23 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
     # Summary sheet — adapt columns based on reporting mode
     ws_summary = wb.create_sheet(title="Summary", index=0)
     summary_header = ["Month"]
+    # Track which columns (1-based) are ETH vs fiat for number formatting
+    eth_columns = set()
+    fiat_columns = set()
+    def _add_header_pair(eth_label, fiat_label):
+        col = len(summary_header) + 1  # 1-based column index
+        summary_header.append(eth_label)
+        eth_columns.add(col)
+        summary_header.append(fiat_label)
+        fiat_columns.add(col + 1)
     if has_accrual:
-        summary_header.extend(["Accrual Rewards [ETH]", f"Accrual Rewards [{currency}]"])
+        _add_header_pair("Accrual Rewards [ETH]", f"Accrual Rewards [{currency}]")
     if has_withdrawals:
-        summary_header.extend(["Withdrawals [ETH]", f"Withdrawals [{currency}]"])
-    summary_header.extend([
-        "Block Rewards [ETH]", f"Block Rewards [{currency}]",
-        "Total Income [ETH]", f"Total Income [{currency}]",
-    ])
+        _add_header_pair("Withdrawals [ETH]", f"Withdrawals [{currency}]")
+    _add_header_pair("Block Rewards [ETH]", f"Block Rewards [{currency}]")
+    _add_header_pair("Total Income [ETH]", f"Total Income [{currency}]")
     if has_principal:
-        summary_header.extend([f"Principal [ETH]", f"Principal [{currency}]"])
+        _add_header_pair(f"Principal [ETH]", f"Principal [{currency}]")
     ws_summary.append(summary_header)
     for cell in ws_summary[1]:
         cell.font = header_font
@@ -1614,7 +1621,10 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
     for row in ws_summary.iter_rows(min_row=2, min_col=2, max_col=num_cols):
         for cell in row:
             if cell.value is not None:
-                cell.number_format = "0.000000000" if cell.column % 2 == 0 else "#,##0.00"
+                if cell.column in eth_columns:
+                    cell.number_format = "0.000000000"
+                elif cell.column in fiat_columns:
+                    cell.number_format = "#,##0.00"
 
     # Auto-size summary columns
     for col in ws_summary.columns:

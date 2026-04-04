@@ -483,7 +483,8 @@
                 const hasPrincipal = !!summary.principal_eth;
                 const hasAccrual = !!summary.accrual_eth;
                 h += '<div class="card"><h2>Monthly Breakdown</h2>';
-                h += '<div class="chart-container">';
+                const clLabel = isAccrual ? 'Accrual' : 'Withdrawals';
+                h += `<div class="chart-container" data-cl-label="${clLabel}">`;
                 h += '<div class="chart-tooltip" id="chartTooltip"></div>';
                 for (const m of summary.months) {
                     const pct = ((m.total_eth / maxEth) * 100).toFixed(1);
@@ -495,7 +496,6 @@
                     </div>`;
                 }
                 h += '</div>';
-                const clLabel = isAccrual ? 'Accrual' : 'Withdrawals';
                 h += `<div class="chart-legend"><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--blue)"></div>${clLabel}</div><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--purple)"></div>Execution Rewards</div></div>`;
 
                 h += `<table class="monthly-table"><thead><tr><th>Month</th><th class="num">${clLabel}</th><th class="num">Block Rewards</th>`;
@@ -712,8 +712,9 @@
                 return;
             }
             const d = row.dataset;
+            const chartLabel = row.closest('.chart-container')?.dataset.clLabel || 'Withdrawals';
             tooltip.innerHTML = `<div class="tt-month">${esc(d.month)}</div>`
-                + `<div class="tt-row"><span><span class="tt-dot" style="background:var(--blue)"></span>Withdrawals</span><span class="tt-val">${parseFloat(d.w).toFixed(6)} ETH</span></div>`
+                + `<div class="tt-row"><span><span class="tt-dot" style="background:var(--blue)"></span>${esc(chartLabel)}</span><span class="tt-val">${parseFloat(d.w).toFixed(6)} ETH</span></div>`
                 + `<div class="tt-row"><span><span class="tt-dot" style="background:var(--purple)"></span>Block Rewards</span><span class="tt-val">${parseFloat(d.br).toFixed(6)} ETH</span></div>`
                 + `<div class="tt-row tt-total"><span>Total</span><span class="tt-val">${parseFloat(d.total).toFixed(6)} ETH</span></div>`
                 + `<div class="tt-row"><span>Value</span><span class="tt-val">${parseFloat(d.fiat).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})} ${esc(d.currency)}</span></div>`;

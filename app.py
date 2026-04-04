@@ -811,35 +811,30 @@ def stream(job_id):
 @app.route("/download/<job_id>")
 @limiter.limit("10 per minute")
 def download(job_id):
-    """Download the generated report file and delete the job from memory.
+    """Download the generated report file.
 
-    Atomic: pops the job under lock so only one concurrent request can succeed.
+    Uses a downloaded flag instead of popping the job, so SSE streams and
+    multiple download attempts (auto-download + manual button) all work.
+    Cleanup is handled by _cleanup_old_jobs.
     """
     with _jobs_lock:
-        job = _jobs.pop(job_id, None)
+        job = _jobs.get(job_id)
     if not job:
-        return jsonify({"error": "Job not found or already downloaded"}), 404
+        return jsonify({"error": "Job not found"}), 404
 
     with job["lock"]:
-        if job["status"] != "done" or not job["file_path"]:
-            # Put the job back — it's not ready yet
-            with _jobs_lock:
-                _jobs[job_id] = job
+        if job["status"] != "done" or not job.get("file_path"):
             return jsonify({"error": "Report not ready yet"}), 202
 
         file_path = job["file_path"]
         mimetype = job["mimetype"]
         filename = job["filename"]
 
-    # Stream file from disk, then clean up the temp file
     try:
         with open(file_path, "rb") as f:
             file_bytes = f.read()
-    finally:
-        try:
-            os.unlink(file_path)
-        except OSError:
-            pass
+    except FileNotFoundError:
+        return jsonify({"error": "Report file no longer available"}), 410
 
     return Response(
         file_bytes,
