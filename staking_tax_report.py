@@ -820,6 +820,11 @@ class BeaconchainClient:
             self._throttle()
             try:
                 resp = self._session.get(url, params=p, timeout=30)
+                if resp.status_code == 401:
+                    raise RuntimeError(
+                        "beaconcha.in API returned 401 Unauthorized. "
+                        "Please check your beaconcha.in API key is valid."
+                    )
                 if resp.status_code == 429:
                     wait = 15 * (attempt + 1)
                     self.log(f"    Rate limited by beaconcha.in, waiting {wait}s...")
@@ -827,6 +832,8 @@ class BeaconchainClient:
                     continue
                 resp.raise_for_status()
                 return resp.json()
+            except RuntimeError:
+                raise  # Don't retry auth errors
             except requests.RequestException as e:
                 if attempt == 2:
                     raise RuntimeError(f"beaconcha.in API error: {e}")
@@ -906,12 +913,17 @@ class BeaconchainClient:
         """
         data = self._get(f"/validator/stats/{validator_index}")
 
-        if not data or data.get("status") != "OK":
-            self.log(f"    Warning: beaconcha.in returned no data for validator {validator_index}")
+        if not data:
+            self.log(f"    Warning: beaconcha.in returned empty response for validator {validator_index}")
+            return []
+        if data.get("status") != "OK":
+            self.log(f"    Warning: beaconcha.in returned status={data.get('status', '?')}, message={data.get('message', '?')} for validator {validator_index}")
             return []
 
+        entries = data.get("data", [])
+        self.log(f"    beaconcha.in returned {len(entries)} daily entries for validator {validator_index}")
         results = []
-        for entry in data.get("data", []):
+        for entry in entries:
             day_start = entry.get("day_start", "")
             if not day_start:
                 continue
@@ -1647,13 +1659,19 @@ def gather_events(
 
     # Step 2b: In accrual mode, fetch daily rewards from beaconcha.in
     accrual_events = []
-    if reporting_mode == "accrual" and beaconchain_api_key and validator_indices:
+    # Resolve validator indices for accrual mode if only a withdrawal address was given
+    accrual_indices = validator_indices
+    if not accrual_indices and reporting_mode == "accrual" and withdrawals:
+        accrual_indices = sorted({w["validator"] for w in withdrawals})
+        if accrual_indices:
+            log(f"  Discovered {len(accrual_indices)} validator(s) from withdrawal history for accrual mode")
+    if reporting_mode == "accrual" and beaconchain_api_key and accrual_indices:
         date_from = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
         date_to = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
-        log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(validator_indices)} validator(s)...")
+        log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(accrual_indices)} validator(s)...")
         bcc = BeaconchainClient(api_key=beaconchain_api_key, log_fn=log)
         try:
-            for vid in validator_indices:
+            for vid in accrual_indices:
                 daily = bcc.get_daily_rewards(vid, date_from, date_to)
                 for d in daily:
                     accrual_events.append({
