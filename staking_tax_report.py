@@ -1439,17 +1439,22 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
             max_len = max(len(str(cell.value or "")) for cell in col)
             ws.column_dimensions[col[0].column_letter].width = min(max_len + 2, 30)
 
-    # Check if any principal withdrawals exist (0x02 validators)
+    # Detect event types present
     has_principal = any(e["type"] == "withdrawal_principal" for e in events)
+    has_accrual = any(e["type"] == "accrual" for e in events)
+    has_withdrawals = any(e["type"] == "withdrawal" for e in events)
 
-    # Summary sheet
+    # Summary sheet — adapt columns based on reporting mode
     ws_summary = wb.create_sheet(title="Summary", index=0)
-    summary_header = [
-        "Month",
-        "Withdrawals [ETH]", f"Withdrawals [{currency}]",
+    summary_header = ["Month"]
+    if has_accrual:
+        summary_header.extend(["Accrual Rewards [ETH]", f"Accrual Rewards [{currency}]"])
+    if has_withdrawals:
+        summary_header.extend(["Withdrawals [ETH]", f"Withdrawals [{currency}]"])
+    summary_header.extend([
         "Block Rewards [ETH]", f"Block Rewards [{currency}]",
         "Total Income [ETH]", f"Total Income [{currency}]",
-    ]
+    ])
     if has_principal:
         summary_header.extend([f"Principal [ETH]", f"Principal [{currency}]"])
     ws_summary.append(summary_header)
@@ -1457,6 +1462,7 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
         cell.font = header_font
 
     grand_totals = {
+        "a_eth": Decimal(0), "a_fiat": Decimal(0),
         "w_eth": Decimal(0), "w_fiat": Decimal(0),
         "br_eth": Decimal(0), "br_fiat": Decimal(0),
         "total_eth": Decimal(0), "total_fiat": Decimal(0),
@@ -1465,20 +1471,29 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
 
     for month_key in sheet_names:
         month_events = events_by_month[month_key]
+        a_eth = sum(e["amount_eth"] for e in month_events if e["type"] == "accrual")
+        a_fiat = sum(e["value_fiat"] for e in month_events if e["type"] == "accrual")
         w_eth = sum(e["amount_eth"] for e in month_events if e["type"] == "withdrawal")
         w_fiat = sum(e["value_fiat"] for e in month_events if e["type"] == "withdrawal")
         br_eth = sum(e["amount_eth"] for e in month_events if e["type"] == "block_reward")
         br_fiat = sum(e["value_fiat"] for e in month_events if e["type"] == "block_reward")
         p_eth = sum(e["amount_eth"] for e in month_events if e["type"] == "withdrawal_principal")
         p_fiat = sum(e["value_fiat"] for e in month_events if e["type"] == "withdrawal_principal")
-        total_eth = w_eth + br_eth
-        total_fiat = w_fiat + br_fiat
+        total_eth = a_eth + w_eth + br_eth
+        total_fiat = a_fiat + w_fiat + br_fiat
 
-        row_data = [month_key, w_eth, w_fiat, br_eth, br_fiat, total_eth, total_fiat]
+        row_data = [month_key]
+        if has_accrual:
+            row_data.extend([a_eth, a_fiat])
+        if has_withdrawals:
+            row_data.extend([w_eth, w_fiat])
+        row_data.extend([br_eth, br_fiat, total_eth, total_fiat])
         if has_principal:
             row_data.extend([p_eth, p_fiat])
         ws_summary.append(row_data)
 
+        grand_totals["a_eth"] += a_eth
+        grand_totals["a_fiat"] += a_fiat
         grand_totals["w_eth"] += w_eth
         grand_totals["w_fiat"] += w_fiat
         grand_totals["br_eth"] += br_eth
@@ -1490,12 +1505,15 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
 
     # Grand total row
     ws_summary.append([])
-    total_row = [
-        "TOTAL",
-        grand_totals["w_eth"], grand_totals["w_fiat"],
+    total_row = ["TOTAL"]
+    if has_accrual:
+        total_row.extend([grand_totals["a_eth"], grand_totals["a_fiat"]])
+    if has_withdrawals:
+        total_row.extend([grand_totals["w_eth"], grand_totals["w_fiat"]])
+    total_row.extend([
         grand_totals["br_eth"], grand_totals["br_fiat"],
         grand_totals["total_eth"], grand_totals["total_fiat"],
-    ]
+    ])
     if has_principal:
         total_row.extend([grand_totals["p_eth"], grand_totals["p_fiat"]])
     ws_summary.append(total_row)
@@ -1503,7 +1521,7 @@ def _build_excel_workbook(events: List[Dict], prices: List[Tuple[int, Decimal]],
         cell.font = header_font
 
     # Format summary number columns (ETH = 9 decimals, fiat = 2 decimals)
-    num_cols = 9 if has_principal else 7
+    num_cols = len(summary_header)
     for row in ws_summary.iter_rows(min_row=2, min_col=2, max_col=num_cols):
         for cell in row:
             if cell.value is not None:
