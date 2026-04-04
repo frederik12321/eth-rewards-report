@@ -161,12 +161,14 @@ class EtherscanClient:
 
                 return data
             except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as e:
+                # Strip API keys from error messages
+                safe_err = re.sub(r'apikey=[^&\s]+', 'apikey=***', str(e))
                 if attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
-                    self.log(f"    Connection error, retrying in {wait}s... ({e})")
+                    self.log(f"    Connection error, retrying in {wait}s... ({safe_err})")
                     time.sleep(wait)
                 else:
-                    raise RuntimeError(f"Etherscan API connection failed after {max_retries} retries: {e}")
+                    raise RuntimeError(f"Etherscan API connection failed after {max_retries} retries: {safe_err}")
 
     def _fallback_get(self, params: Dict) -> Dict:
         """Try fallback APIs (Routescan, Blockscout) in order until one succeeds."""
@@ -329,18 +331,32 @@ class EtherscanClient:
         self.log(f"    Found {len(local_blocks)} local block rewards")
 
         # --- Step 2: Find MEV candidates from regular + internal transactions ---
+        # Fetch txlist and txlistinternal in parallel (they are independent)
         self.log(f"  Fetching incoming transactions to detect MEV payments...")
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            fut_regular = pool.submit(self._fetch_paginated, {
+                "module": "account",
+                "action": "txlist",
+                "address": address,
+                "startblock": start_block,
+                "endblock": end_block,
+                "sort": "asc",
+            })
+            fut_internal = pool.submit(self._fetch_paginated, {
+                "module": "account",
+                "action": "txlistinternal",
+                "address": address,
+                "startblock": start_block,
+                "endblock": end_block,
+                "sort": "asc",
+            })
+            regular_txs = fut_regular.result()
+            internal_txs = fut_internal.result()
+
         candidate_txs = []  # list of (block_number, sender, value_wei, timestamp)
 
-        # 2a: Regular transactions (txlist) — filtered by block range
-        regular_txs = self._fetch_paginated({
-            "module": "account",
-            "action": "txlist",
-            "address": address,
-            "startblock": start_block,
-            "endblock": end_block,
-            "sort": "asc",
-        })
+        # 2a: Regular transactions
         for tx in regular_txs:
             if tx.get("to", "").lower() != address_lower:
                 continue
@@ -353,16 +369,7 @@ class EtherscanClient:
                 if bn not in local_blocks:
                     candidate_txs.append((bn, tx["from"].lower(), str(value), ts))
 
-        # 2b: Internal transactions (txlistinternal) — catches MEV via smart contracts
-        self.log(f"  Fetching internal transactions to detect MEV via contracts...")
-        internal_txs = self._fetch_paginated({
-            "module": "account",
-            "action": "txlistinternal",
-            "address": address,
-            "startblock": start_block,
-            "endblock": end_block,
-            "sort": "asc",
-        })
+        # 2b: Internal transactions — catches MEV via smart contracts
         seen_blocks = set(c[0] for c in candidate_txs)
         for tx in internal_txs:
             if tx.get("to", "").lower() != address_lower:
@@ -627,6 +634,10 @@ def parse_validator_input(value: str) -> Dict:
     # Check for comma-separated values (multiple validator indices)
     if "," in value:
         parts = [p.strip() for p in value.split(",") if p.strip()]
+        if len(parts) > 200:
+            raise ValueError(
+                f"Too many validator indices ({len(parts)}). Maximum is 200."
+            )
         for p in parts:
             if not p.isdigit():
                 raise ValueError(
@@ -708,6 +719,7 @@ class PriceCache:
         """Find time ranges not yet cached (at hourly resolution).
 
         Returns list of (gap_start, gap_end) tuples that need fetching.
+        Detects gaps at the start, end, AND internal gaps (e.g., missing months).
         """
         cached = self.conn.execute(
             "SELECT MIN(timestamp), MAX(timestamp) FROM prices "
@@ -716,7 +728,6 @@ class PriceCache:
         ).fetchone()
 
         if cached[0] is None:
-            # Nothing cached for this range
             return [(start_ts, end_ts)]
 
         gaps = []
@@ -725,6 +736,21 @@ class PriceCache:
         # Gap before cached data
         if start_ts < cached_min - 3600:
             gaps.append((start_ts, cached_min))
+
+        # Internal gaps: find consecutive timestamps with >2h spacing
+        rows = self.conn.execute(
+            "SELECT timestamp FROM prices "
+            "WHERE currency = ? AND timestamp >= ? AND timestamp <= ? "
+            "ORDER BY timestamp",
+            (currency, start_ts, end_ts),
+        ).fetchall()
+        if rows:
+            max_gap = 7200  # 2 hours — anything larger is a gap
+            for i in range(1, len(rows)):
+                prev_ts, curr_ts = rows[i - 1][0], rows[i][0]
+                if curr_ts - prev_ts > max_gap:
+                    gaps.append((prev_ts, curr_ts))
+
         # Gap after cached data
         if end_ts > cached_max + 3600:
             gaps.append((cached_max, end_ts))
@@ -874,10 +900,12 @@ class BeaconchainClient:
             except RuntimeError:
                 raise  # Don't retry auth errors
             except requests.RequestException as e:
+                # Strip API keys from error messages (request URLs contain ?apikey=...)
+                safe_err = re.sub(r'apikey=[^&\s]+', 'apikey=***', str(e))
                 if attempt == 2:
-                    raise RuntimeError(f"beaconcha.in API error: {e}")
+                    raise RuntimeError(f"beaconcha.in API error: {safe_err}")
                 wait = 5 * (attempt + 1)
-                self.log(f"    beaconcha.in request failed ({e}), retrying in {wait}s...")
+                self.log(f"    beaconcha.in request failed ({safe_err}), retrying in {wait}s...")
                 time.sleep(wait)
         return {}
 
@@ -1066,13 +1094,11 @@ class CryptoCompareClient:
         No API key needed. DeFiLlama returns hourly data, Frankfurter provides
         daily USD→target conversion rates.
         """
-        from datetime import datetime as _dt
-
         # Step 1: Fetch forex rates if non-USD
         forex_rates = {}
         if self.currency != "USD":
-            start_date = _dt.utcfromtimestamp(start_ts).strftime("%Y-%m-%d")
-            end_date = _dt.utcfromtimestamp(end_ts).strftime("%Y-%m-%d")
+            start_date = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+            end_date = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
             if self._verbose:
                 self.log(f"    Fetching USD/{self.currency} forex rates from ECB...")
             forex_rates = self._fetch_forex_rates(start_date, end_date)
@@ -1139,14 +1165,14 @@ class CryptoCompareClient:
                         fetched.append((ts, usd_price))
                     else:
                         # Convert USD→target using nearest daily forex rate
-                        day_str = _dt.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+                        day_str = datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d")
                         rate = forex_rates.get(day_str)
                         if rate is None:
                             # Find nearest available rate
                             sorted_dates = sorted(forex_rates.keys())
                             if sorted_dates:
                                 nearest = min(sorted_dates, key=lambda d: abs(
-                                    _dt.strptime(d, "%Y-%m-%d").timestamp() - ts))
+                                    datetime.strptime(d, "%Y-%m-%d").timestamp() - ts))
                                 rate = forex_rates[nearest]
                         if rate:
                             fetched.append((ts, usd_price * rate))
@@ -1352,12 +1378,17 @@ class CryptoCompareClient:
         return deduped
 
 
-def find_nearest_price(prices: List[Tuple[int, Decimal]], timestamp: int) -> Decimal:
-    """Find the price closest to the given timestamp using binary search."""
+def find_nearest_price(prices: List[Tuple[int, Decimal]], timestamp: int,
+                       _timestamps: Optional[List[int]] = None) -> Decimal:
+    """Find the price closest to the given timestamp using binary search.
+
+    Pass _timestamps (pre-computed list of price timestamps) for O(1) setup cost
+    when calling in a loop.
+    """
     if not prices:
         return Decimal(0)
-    timestamps = [p[0] for p in prices]
-    idx = bisect.bisect_left(timestamps, timestamp)
+    ts_list = _timestamps if _timestamps is not None else [p[0] for p in prices]
+    idx = bisect.bisect_left(ts_list, timestamp)
     if idx == 0:
         return prices[0][1]
     if idx >= len(prices):
@@ -1378,11 +1409,15 @@ def _prepare_events(events: List[Dict], prices: List[Tuple[int, Decimal]], tz=No
     """Enrich events with price data and datetime. All amounts use Decimal.
 
     tz: optional timezone for datetime display (default: UTC).
+    Idempotent — skips events already enriched.
     """
+    if events and "datetime" in events[0]:
+        return  # Already prepared
     display_tz = tz or timezone.utc
+    price_timestamps = [p[0] for p in prices]  # Pre-compute once
     for event in sorted(events, key=lambda e: e["timestamp"]):
         dt = datetime.fromtimestamp(event["timestamp"], tz=timezone.utc).astimezone(display_tz)
-        price = find_nearest_price(prices, event["timestamp"])
+        price = find_nearest_price(prices, event["timestamp"], _timestamps=price_timestamps)
         event["price_fiat"] = price
         event["value_fiat"] = event["amount_eth"] * price
         event["datetime"] = dt

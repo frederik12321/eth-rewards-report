@@ -123,12 +123,26 @@ _job_semaphore = threading.Semaphore(_MAX_CONCURRENT_JOBS)
 
 
 def _cleanup_old_jobs():
-    """Remove jobs that have exceeded their max_age (default 10 min, extended for large jobs)."""
+    """Remove finished/errored jobs that have exceeded their max_age.
+
+    Running jobs are never cleaned up — their background thread will finish
+    and set status to done/error, at which point a future cleanup pass will
+    remove them.  This prevents temp-file leaks from orphaned jobs.
+    """
     now = time.time()
     with _jobs_lock:
-        expired = [jid for jid, j in _jobs.items() if now - j["created"] > j.get("max_age", 600)]
+        expired = []
+        for jid, j in _jobs.items():
+            age = now - j["created"]
+            max_age = j.get("max_age", 600)
+            status = j.get("status")
+            # Only clean up completed jobs, or running jobs that are *way* over time (2x max_age safety net)
+            if age > max_age and status in ("done", "error"):
+                expired.append(jid)
+            elif age > max_age * 2:
+                # Safety net: force-clean truly stuck jobs
+                expired.append(jid)
         for jid in expired:
-            # Clean up temp file if it was never downloaded
             fp = _jobs[jid].get("file_path")
             if fp:
                 try:
@@ -139,11 +153,12 @@ def _cleanup_old_jobs():
 
 
 def _start_cleanup_scheduler():
-    """Run job cleanup every 60 seconds in a background daemon thread."""
+    """Run job cleanup and stats flush every 60 seconds in a background daemon thread."""
     def _loop():
         while True:
             time.sleep(60)
             _cleanup_old_jobs()
+            _flush_stats_if_dirty()
     t = threading.Thread(target=_loop, daemon=True)
     t.start()
 
@@ -233,10 +248,23 @@ def _save_stats():
 _load_stats()
 
 
+_stats_dirty = False
+
+
 def _inc_stat(key):
+    global _stats_dirty
     with _stats_lock:
         _stats[key] = _stats.get(key, 0) + 1
-        _save_stats()
+        _stats_dirty = True
+
+
+def _flush_stats_if_dirty():
+    """Persist stats to disk if any counters changed since last flush."""
+    global _stats_dirty
+    with _stats_lock:
+        if _stats_dirty:
+            _save_stats()
+            _stats_dirty = False
 
 
 # ---------------------------------------------------------------------------
@@ -783,23 +811,25 @@ def stream(job_id):
 @app.route("/download/<job_id>")
 @limiter.limit("10 per minute")
 def download(job_id):
-    """Download the generated report file and delete the job from memory."""
+    """Download the generated report file and delete the job from memory.
+
+    Atomic: pops the job under lock so only one concurrent request can succeed.
+    """
     with _jobs_lock:
-        job = _jobs.get(job_id)
+        job = _jobs.pop(job_id, None)
     if not job:
-        return jsonify({"error": "Job not found"}), 404
+        return jsonify({"error": "Job not found or already downloaded"}), 404
 
     with job["lock"]:
         if job["status"] != "done" or not job["file_path"]:
+            # Put the job back — it's not ready yet
+            with _jobs_lock:
+                _jobs[job_id] = job
             return jsonify({"error": "Report not ready yet"}), 202
 
         file_path = job["file_path"]
         mimetype = job["mimetype"]
         filename = job["filename"]
-
-    # Delete job from memory immediately — summary is already client-side
-    with _jobs_lock:
-        _jobs.pop(job_id, None)
 
     # Stream file from disk, then clean up the temp file
     try:
