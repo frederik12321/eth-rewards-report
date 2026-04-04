@@ -102,10 +102,13 @@ def load_config(path: str = "config.yaml") -> dict:
 
 class EtherscanClient:
     BASE_URL = "https://api.etherscan.io/v2/api"
-    # Routescan fallback for execution-layer queries when Etherscan is rate-limited.
-    # Routescan does NOT support txsBeaconWithdrawal, so only used for EL endpoints.
-    ROUTESCAN_URL = "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api"
-    # Actions that Routescan does NOT support (beacon-chain specific)
+    # Fallback APIs for execution-layer queries when Etherscan is rate-limited.
+    # Neither supports txsBeaconWithdrawal, so only used for EL endpoints.
+    FALLBACK_URLS = [
+        "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api",
+        "https://eth.blockscout.com/api",
+    ]
+    # Actions that only Etherscan supports (beacon-chain specific)
     _ETHERSCAN_ONLY_ACTIONS = {"txsBeaconWithdrawal"}
 
     def __init__(self, api_key: str, log_fn=None):
@@ -144,10 +147,10 @@ class EtherscanClient:
 
                 # Check for Etherscan rate-limit response
                 if data.get("status") == "0" and "rate limit" in str(data.get("result", "")).lower():
-                    # Try Routescan fallback for supported actions
+                    # Try fallback APIs for supported actions
                     if can_fallback:
-                        self.log(f"    Etherscan rate limited, trying Routescan fallback...")
-                        return self._routescan_get(params)
+                        self.log(f"    Etherscan rate limited, trying fallback APIs...")
+                        return self._fallback_get(params)
                     if attempt < max_retries - 1:
                         wait = 2 ** (attempt + 1)
                         self.log(f"    Rate limited by Etherscan, waiting {wait}s...")
@@ -165,17 +168,29 @@ class EtherscanClient:
                 else:
                     raise RuntimeError(f"Etherscan API connection failed after {max_retries} retries: {e}")
 
-    def _routescan_get(self, params: Dict) -> Dict:
-        """Fallback to Routescan API (no API key needed, no chainid param)."""
-        rs_params = {k: v for k, v in params.items() if k not in ("chainid", "apikey")}
-        try:
-            resp = self.session.get(self.ROUTESCAN_URL, params=rs_params, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            return data
-        except Exception as e:
-            self.log(f"    Routescan fallback also failed: {e}")
-            raise RuntimeError(f"Both Etherscan and Routescan failed: {e}")
+    def _fallback_get(self, params: Dict) -> Dict:
+        """Try fallback APIs (Routescan, Blockscout) in order until one succeeds."""
+        fb_params = {k: v for k, v in params.items() if k not in ("chainid", "apikey")}
+        last_error = None
+        for url in self.FALLBACK_URLS:
+            name = url.split("//")[1].split("/")[0]
+            try:
+                resp = self.session.get(url, params=fb_params, timeout=30)
+                resp.raise_for_status()
+                data = resp.json()
+                if data.get("status") == "1" or data.get("message", "").upper() == "OK":
+                    self.log(f"    Fallback succeeded via {name}")
+                    return data
+                # "No transactions found" is a valid empty result, not an error
+                if "no " in str(data.get("message", "")).lower() and "found" in str(data.get("message", "")).lower():
+                    self.log(f"    Fallback via {name}: {data.get('message')}")
+                    return data
+                last_error = f"{name}: {data.get('message', '?')}"
+            except Exception as e:
+                last_error = f"{name}: {e}"
+                self.log(f"    Fallback {name} failed: {e}")
+                continue
+        raise RuntimeError(f"Etherscan rate limited and all fallbacks failed. Last: {last_error}")
 
     def get_beacon_withdrawals(self, address: str, start_ts: int, end_ts: int) -> List[Dict]:
         """Fetch all beacon chain withdrawals for a withdrawal address."""
