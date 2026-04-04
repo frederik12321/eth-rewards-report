@@ -694,6 +694,250 @@ class PriceCache:
         return gaps
 
 
+class ValidatorStatsCache:
+    """SQLite cache for daily validator statistics from beaconcha.in.
+
+    Stores daily balance snapshots and computed rewards per validator.
+    Historical data never changes, so cached data is permanent.
+    """
+
+    def __init__(self, db_path: str = "price_cache.db"):
+        import sqlite3
+        self.db_path = db_path
+        self.conn = sqlite3.connect(db_path, timeout=10)
+        self.conn.execute("PRAGMA journal_mode=WAL")
+        self.conn.execute("PRAGMA busy_timeout=5000")
+        self.conn.execute(
+            "CREATE TABLE IF NOT EXISTS validator_daily_stats "
+            "(validator_index INTEGER, day_date TEXT, "
+            "start_balance TEXT, end_balance TEXT, "
+            "deposits_amount TEXT, withdrawals_amount TEXT, "
+            "reward_gwei TEXT, "
+            "PRIMARY KEY (validator_index, day_date))"
+        )
+        self.conn.commit()
+
+    def close(self):
+        if self.conn:
+            self.conn.close()
+            self.conn = None
+
+    def get_cached(self, validator_index: int, date_from: str, date_to: str) -> List[Dict]:
+        """Return cached daily stats for a validator in a date range.
+
+        Returns list of dicts with keys: date, reward_gwei, start_balance, end_balance.
+        """
+        rows = self.conn.execute(
+            "SELECT day_date, reward_gwei, start_balance, end_balance, "
+            "deposits_amount, withdrawals_amount "
+            "FROM validator_daily_stats "
+            "WHERE validator_index = ? AND day_date >= ? AND day_date <= ? "
+            "ORDER BY day_date",
+            (validator_index, date_from, date_to),
+        ).fetchall()
+        return [
+            {
+                "date": r[0],
+                "reward_gwei": int(r[1]),
+                "start_balance": int(r[2]),
+                "end_balance": int(r[3]),
+                "deposits_amount": int(r[4]),
+                "withdrawals_amount": int(r[5]),
+            }
+            for r in rows
+        ]
+
+    def store(self, validator_index: int, stats: List[Dict]):
+        """Store daily stats. Each dict needs: date, start_balance, end_balance,
+        deposits_amount, withdrawals_amount, reward_gwei."""
+        if not stats:
+            return
+        self.conn.executemany(
+            "INSERT OR IGNORE INTO validator_daily_stats "
+            "(validator_index, day_date, start_balance, end_balance, "
+            "deposits_amount, withdrawals_amount, reward_gwei) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (
+                    validator_index,
+                    s["date"],
+                    str(s["start_balance"]),
+                    str(s["end_balance"]),
+                    str(s["deposits_amount"]),
+                    str(s["withdrawals_amount"]),
+                    str(s["reward_gwei"]),
+                )
+                for s in stats
+            ],
+        )
+        self.conn.commit()
+
+    def get_cached_dates(self, validator_index: int, date_from: str, date_to: str) -> set:
+        """Return set of dates already cached for a validator."""
+        rows = self.conn.execute(
+            "SELECT day_date FROM validator_daily_stats "
+            "WHERE validator_index = ? AND day_date >= ? AND day_date <= ?",
+            (validator_index, date_from, date_to),
+        ).fetchall()
+        return {r[0] for r in rows}
+
+
+class BeaconchainClient:
+    """Client for beaconcha.in API v1. Fetches daily validator statistics
+    for computing 0x02 compounding reward accrual."""
+
+    BASE_URL = "https://beaconcha.in/api/v1"
+
+    def __init__(self, api_key: str = "", cache_path: str = "price_cache.db", log_fn=None):
+        self.api_key = api_key
+        self.cache = ValidatorStatsCache(cache_path)
+        self.log = log_fn or print
+        self._session = requests.Session()
+        self._last_call = 0.0
+        self._min_interval = 6.5  # 10 req/min rate limit → ~6s between calls
+
+    def close(self):
+        if self.cache:
+            self.cache.close()
+            self.cache = None
+        if self._session:
+            self._session.close()
+
+    def _throttle(self):
+        elapsed = time.monotonic() - self._last_call
+        if elapsed < self._min_interval:
+            time.sleep(self._min_interval - elapsed)
+        self._last_call = time.monotonic()
+
+    def _get(self, path: str, params: dict = None) -> dict:
+        """Make a GET request to beaconcha.in API with retry."""
+        url = f"{self.BASE_URL}{path}"
+        p = params or {}
+        if self.api_key:
+            p["apikey"] = self.api_key
+
+        for attempt in range(3):
+            self._throttle()
+            try:
+                resp = self._session.get(url, params=p, timeout=30)
+                if resp.status_code == 429:
+                    wait = 15 * (attempt + 1)
+                    self.log(f"    Rate limited by beaconcha.in, waiting {wait}s...")
+                    time.sleep(wait)
+                    continue
+                resp.raise_for_status()
+                return resp.json()
+            except requests.RequestException as e:
+                if attempt == 2:
+                    raise RuntimeError(f"beaconcha.in API error: {e}")
+                time.sleep(5 * (attempt + 1))
+        return {}
+
+    def _day_to_date(self, day_start_str: str) -> str:
+        """Convert beaconcha.in day_start timestamp to YYYY-MM-DD."""
+        # day_start is RFC 3339: "2025-06-15T12:00:23Z"
+        # We take the date part. Note: beacon chain days start at 12:00:23 UTC
+        # so the "date" of a beacon day is the calendar date of its start time.
+        dt = datetime.fromisoformat(day_start_str.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d")
+
+    def get_daily_rewards(self, validator_index: int, date_from: str, date_to: str) -> List[Dict]:
+        """Get daily reward accrual for a validator in a date range.
+
+        Returns list of dicts with keys: date, reward_gwei, timestamp.
+        Uses cache; only fetches uncached days from beaconcha.in.
+        """
+        # Check what's already cached
+        cached = self.cache.get_cached(validator_index, date_from, date_to)
+        cached_dates = {s["date"] for s in cached}
+
+        # Generate all expected dates in range
+        from datetime import timedelta
+        start_dt = datetime.strptime(date_from, "%Y-%m-%d")
+        end_dt = datetime.strptime(date_to, "%Y-%m-%d")
+        all_dates = set()
+        d = start_dt
+        while d <= end_dt:
+            all_dates.add(d.strftime("%Y-%m-%d"))
+            d += timedelta(days=1)
+
+        missing_dates = all_dates - cached_dates
+
+        if missing_dates:
+            self.log(f"    Fetching daily stats for validator {validator_index} from beaconcha.in ({len(missing_dates)} days)...")
+            fetched = self._fetch_stats(validator_index)
+
+            # Filter to relevant date range and compute rewards
+            new_stats = []
+            for s in fetched:
+                date_str = s["date"]
+                if date_str not in missing_dates:
+                    continue
+                new_stats.append(s)
+
+            if new_stats:
+                self.cache.store(validator_index, new_stats)
+                self.log(f"    Cached {len(new_stats)} daily stats for validator {validator_index}")
+
+            # Re-read from cache to get everything in order
+            cached = self.cache.get_cached(validator_index, date_from, date_to)
+
+        # Convert to output format with timestamps
+        results = []
+        for s in cached:
+            dt = datetime.strptime(s["date"], "%Y-%m-%d").replace(
+                hour=12, tzinfo=timezone.utc
+            )
+            reward_gwei = s["reward_gwei"]
+            if reward_gwei > 0:
+                results.append({
+                    "date": s["date"],
+                    "reward_gwei": reward_gwei,
+                    "timestamp": int(dt.timestamp()),
+                })
+
+        return results
+
+    def _fetch_stats(self, validator_index: int) -> List[Dict]:
+        """Fetch all daily stats for a validator from beaconcha.in.
+
+        Returns list of dicts with: date, start_balance, end_balance,
+        deposits_amount, withdrawals_amount, reward_gwei.
+        """
+        data = self._get(f"/validator/stats/{validator_index}")
+
+        if not data or data.get("status") != "OK":
+            self.log(f"    Warning: beaconcha.in returned no data for validator {validator_index}")
+            return []
+
+        results = []
+        for entry in data.get("data", []):
+            day_start = entry.get("day_start", "")
+            if not day_start:
+                continue
+
+            date_str = self._day_to_date(day_start)
+            start_bal = int(entry.get("start_balance", 0))
+            end_bal = int(entry.get("end_balance", 0))
+            deposits = int(entry.get("deposits_amount", 0))
+            withdrawals = int(entry.get("withdrawals_amount", 0))
+
+            # Daily reward = balance change - deposits + withdrawals
+            # (balance goes down by withdrawals, up by deposits — we reverse those)
+            reward_gwei = (end_bal - start_bal) - deposits + withdrawals
+
+            results.append({
+                "date": date_str,
+                "start_balance": start_bal,
+                "end_balance": end_bal,
+                "deposits_amount": deposits,
+                "withdrawals_amount": withdrawals,
+                "reward_gwei": reward_gwei,
+            })
+
+        return results
+
+
 class CryptoCompareClient:
     BASE_URL = "https://min-api.cryptocompare.com/data/v2"
 
@@ -1328,6 +1572,8 @@ def gather_events(
     start_ts: int,
     end_ts: int,
     log_fn=None,
+    beaconchain_api_key: str = "",
+    reporting_mode: str = "withdrawal",
 ) -> List[Dict]:
     """Fetch all staking events for an account. Returns raw event list (no file I/O)."""
     log = log_fn or print
@@ -1399,6 +1645,30 @@ def gather_events(
 
         log(f"  Classification: {income_count} income (skimming), {principal_count} principal (user-requested), {consolidated_count} consolidation")
 
+    # Step 2b: In accrual mode, fetch daily rewards from beaconcha.in
+    accrual_events = []
+    if reporting_mode == "accrual" and beaconchain_api_key and validator_indices:
+        date_from = datetime.fromtimestamp(start_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        date_to = datetime.fromtimestamp(end_ts, tz=timezone.utc).strftime("%Y-%m-%d")
+        log(f"  Accrual mode: fetching daily rewards from beaconcha.in for {len(validator_indices)} validator(s)...")
+        bcc = BeaconchainClient(api_key=beaconchain_api_key, log_fn=log)
+        try:
+            for vid in validator_indices:
+                daily = bcc.get_daily_rewards(vid, date_from, date_to)
+                for d in daily:
+                    accrual_events.append({
+                        "timestamp": d["timestamp"],
+                        "amount_eth": Decimal(d["reward_gwei"]) / GWEI_PER_ETH,
+                        "type": "accrual",
+                        "validator": vid,
+                    })
+                if daily:
+                    log(f"    Validator {vid}: {len(daily)} days with positive accrual rewards")
+        finally:
+            bcc.close()
+        if accrual_events:
+            log(f"  Total accrual events: {len(accrual_events)}")
+
     # Step 3: Fetch execution rewards (local blocks + MEV) from Etherscan
     # Use fee_recipient address if provided (can differ from withdrawal address)
     fee_recipient = account.get("fee_recipient", "") or withdrawal_address
@@ -1410,7 +1680,16 @@ def gather_events(
         for br in block_rewards:
             br["validator"] = validator_indices[0]
 
-    return withdrawals + block_rewards
+    if reporting_mode == "accrual":
+        # Accrual mode: daily balance-change rewards replace withdrawal income.
+        # Keep principal/consolidation withdrawals for reference, drop income withdrawals.
+        kept_withdrawals = [w for w in withdrawals if w.get("type") == "withdrawal_principal"]
+        if kept_withdrawals:
+            log(f"  Accrual mode: keeping {len(kept_withdrawals)} principal withdrawal(s), dropping {len(withdrawals) - len(kept_withdrawals)} income withdrawal(s)")
+        return kept_withdrawals + block_rewards + accrual_events
+    else:
+        # Withdrawal mode: on-chain withdrawals only, no accrual events
+        return withdrawals + block_rewards
 
 
 def process_account(

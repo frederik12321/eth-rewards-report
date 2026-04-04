@@ -49,6 +49,10 @@
         .yr-btn { padding: 6px 14px; background: var(--input); border: 1px solid var(--border); border-radius: 6px; color: var(--text-dim); font-size: 13px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
         .yr-btn:hover { border-color: var(--blue); color: #fff; }
         .yr-btn.active { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); }
+        .mode-toggle { display: inline-flex; background: var(--input); border-radius: 8px; padding: 3px; gap: 2px; margin-bottom: 4px; }
+        .mode-btn { padding: 7px 16px; border: none; border-radius: 6px; font-size: 13px; font-weight: 600; cursor: pointer; background: transparent; color: var(--text-muted); transition: all 0.2s; }
+        .mode-btn:hover { color: var(--text-dim); }
+        .mode-btn.active { background: var(--blue); color: #fff; }
         .row { display: flex; gap: 12px; }
         .row > div { flex: 1; }
         .generate-btn { width: 100%; padding: 14px; background: var(--blue); color: #fff; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; transition: background 0.15s; }
@@ -244,6 +248,15 @@
                             </select>
                         </div>
                     </div>
+                    <label style="margin-top:12px">Reporting Method</label>
+                    <div class="mode-toggle" id="modeToggle">
+                        <button type="button" class="mode-btn active" data-mode="withdrawal">Withdrawal-based</button>
+                        <button type="button" class="mode-btn" data-mode="accrual">Accrual-based</button>
+                        <input type="hidden" name="reporting_mode" value="withdrawal">
+                    </div>
+                    <p class="hint" style="margin-top:4px" id="modeHintText">Cash-basis — reports on-chain withdrawals as income</p>
+                    <p class="hint" id="accrualHint" style="display:none;color:var(--yellow,#f5a623)">Requires a beaconcha.in API key (see Advanced Options)</p>
+
                     <label style="display:flex;align-items:center;gap:8px;margin-top:8px;cursor:pointer">
                         <input type="checkbox" name="auto_download" style="width:auto;margin:0;accent-color:var(--blue)">
                         <span>Download file automatically when ready</span>
@@ -275,6 +288,10 @@
                         <label>CoinGecko API Key <span class="optional-tag">(optional)</span></label>
                         <input type="password" name="coingecko_api_key" maxlength="40" placeholder="Required for SEK, NOK, DKK" autocomplete="off">
                         <p class="hint">Free demo key for Nordic currencies. <a href="https://www.coingecko.com/en/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get one here</a></p>
+
+                        <label>Beaconcha.in API Key <span class="optional-tag">(optional)</span></label>
+                        <input type="password" name="beaconchain_api_key" maxlength="80" placeholder="Required for 0x02 compounding validator accrual rewards" autocomplete="off">
+                        <p class="hint">Enables daily reward accrual tracking for compounding validators. <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Get a free key here</a></p>
 
                         <label>Timezone <span class="optional-tag">(default: UTC)</span></label>
                         <select name="timezone" id="tzSelect">
@@ -355,6 +372,7 @@
                 currency: document.querySelector('[name="currency"]').value,
                 output_format: document.querySelector('[name="output_format"]').value,
                 auto_download: document.querySelector('[name="auto_download"]').checked,
+                reporting_mode: document.querySelector('[name="reporting_mode"]').value,
                 timezone: document.querySelector('[name="timezone"]').value,
             }));
             // Addresses are not cached for privacy
@@ -368,6 +386,7 @@
                 if (c.currency) document.querySelector('[name="currency"]').value = c.currency;
                 if (c.output_format) document.querySelector('[name="output_format"]').value = c.output_format;
                 if (c.auto_download) document.querySelector('[name="auto_download"]').checked = c.auto_download;
+                if (c.reporting_mode) document.querySelector('[name="reporting_mode"]').value = c.reporting_mode;
                 if (c.timezone) document.querySelector('[name="timezone"]').value = c.timezone;
             } catch(e) {}
             // Clear any previously stored addresses (legacy cleanup)
@@ -417,8 +436,10 @@
             h += `<button class="back-link" data-action="back">&#x2190; Back to form</button>`;
 
             // Hero
+            const isAccrual = summary.reporting_mode === 'accrual';
+            const modeBadge = isAccrual ? '<span style="font-size:11px;background:var(--purple-dim);color:var(--purple);padding:2px 8px;border-radius:4px;margin-left:8px;font-weight:600">ACCRUAL</span>' : '<span style="font-size:11px;background:var(--blue-dim);color:var(--blue);padding:2px 8px;border-radius:4px;margin-left:8px;font-weight:600">WITHDRAWAL</span>';
             h += `<div class="hero-total">
-                <div class="hero-label">Total Staking Income</div>
+                <div class="hero-label">Total Staking Income ${modeBadge}</div>
                 <div class="hero-eth">${esc(fE(summary.total_income_eth))}<span class="unit">ETH</span></div>
                 <div class="hero-fiat">${esc(fF(summary.total_income_fiat, c))}</div>
                 <div class="hero-meta">${esc(summary.event_count)} events across ${esc(summary.months ? summary.months.length : 0)} months</div>
@@ -426,7 +447,11 @@
 
             // Stat cards
             h += '<div class="stats-row">';
-            h += `<div class="stat-card withdrawals"><div class="stat-icon">&#x2B07;</div><div class="stat-title">Consensus Withdrawals</div><div class="stat-eth">${esc(fE(summary.withdrawals_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.withdrawals_fiat, c))}</div></div>`;
+            if (isAccrual) {
+                h += `<div class="stat-card accrual"><div class="stat-icon">&#x1F4C8;</div><div class="stat-title">Daily Accrual Rewards</div><div class="stat-eth">${esc(fE(summary.accrual_eth || 0))} ETH</div><div class="stat-fiat">${esc(fF(summary.accrual_fiat || 0, c))}</div></div>`;
+            } else {
+                h += `<div class="stat-card withdrawals"><div class="stat-icon">&#x2B07;</div><div class="stat-title">Consensus Withdrawals</div><div class="stat-eth">${esc(fE(summary.withdrawals_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.withdrawals_fiat, c))}</div></div>`;
+            }
             h += `<div class="stat-card rewards"><div class="stat-icon">&#x26A1;</div><div class="stat-title">Execution Rewards</div><div class="stat-eth">${esc(fE(summary.block_rewards_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.block_rewards_fiat, c))}</div></div>`;
             if (summary.principal_eth) {
                 h += `<div class="stat-card principal" style="grid-column:1/-1"><div class="stat-icon">&#x21A9;</div><div class="stat-title">Principal Withdrawals (not income)</div><div class="stat-eth">${esc(fE(summary.principal_eth))} ETH</div><div class="stat-fiat">${esc(fF(summary.principal_fiat, c))}</div></div>`;
@@ -436,33 +461,38 @@
             // Monthly chart + table
             if (summary.months && summary.months.length > 0) {
                 const maxEth = Math.max(...summary.months.map(m => m.total_eth)) || 1;
+                const hasPrincipal = !!summary.principal_eth;
+                const hasAccrual = !!summary.accrual_eth;
                 h += '<div class="card"><h2>Monthly Breakdown</h2>';
                 h += '<div class="chart-container">';
                 h += '<div class="chart-tooltip" id="chartTooltip"></div>';
                 for (const m of summary.months) {
                     const pct = ((m.total_eth / maxEth) * 100).toFixed(1);
-                    h += `<div class="chart-bar-row" data-month="${esc(m.month)}" data-w="${m.withdrawals_eth}" data-br="${m.block_rewards_eth}" data-total="${m.total_eth}" data-fiat="${m.total_fiat.toFixed(2)}" data-currency="${c}">
+                    const clVal = isAccrual ? (m.accrual_eth || 0) : m.withdrawals_eth;
+                    h += `<div class="chart-bar-row" data-month="${esc(m.month)}" data-w="${clVal}" data-br="${m.block_rewards_eth}" data-total="${m.total_eth}" data-fiat="${m.total_fiat.toFixed(2)}" data-currency="${c}">
                         <div class="chart-label">${esc(m.month.substring(2))}</div>
-                        <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${pct}%"><div class="chart-bar-w" style="flex:${m.withdrawals_eth}"></div><div class="chart-bar-br" style="flex:${m.block_rewards_eth || 0.001}"></div></div></div>
+                        <div class="chart-bar-bg"><div class="chart-bar-fill" style="width:${pct}%"><div class="chart-bar-w" style="flex:${clVal}"></div><div class="chart-bar-br" style="flex:${m.block_rewards_eth || 0.001}"></div></div></div>
                         <div class="chart-bar-value">${esc(m.total_eth.toFixed(4))}</div>
                     </div>`;
                 }
                 h += '</div>';
-                h += '<div class="chart-legend"><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--blue)"></div>Withdrawals</div><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--purple)"></div>Execution Rewards</div></div>';
+                const clLabel = isAccrual ? 'Accrual' : 'Withdrawals';
+                h += `<div class="chart-legend"><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--blue)"></div>${clLabel}</div><div class="chart-legend-item"><div class="chart-legend-dot" style="background:var(--purple)"></div>Execution Rewards</div></div>`;
 
-                const hasPrincipal = !!summary.principal_eth;
-                h += `<table class="monthly-table"><thead><tr><th>Month</th><th class="num">Withdrawals</th><th class="num">Block Rewards</th>`;
+                h += `<table class="monthly-table"><thead><tr><th>Month</th><th class="num">${clLabel}</th><th class="num">Block Rewards</th>`;
                 if (hasPrincipal) h += '<th class="num">Principal</th>';
                 h += `<th class="num">Total Income</th><th class="num">Avg ETH/${c}</th><th class="num">Value ${c}</th></tr></thead><tbody>`;
                 for (const m of summary.months) {
-                    h += `<tr><td class="month-label">${esc(m.month)}</td><td class="num">${esc(m.withdrawals_eth.toFixed(6))}</td><td class="num">${esc(m.block_rewards_eth.toFixed(6))}</td>`;
+                    const clEth = isAccrual ? (m.accrual_eth || 0) : m.withdrawals_eth;
+                    h += `<tr><td class="month-label">${esc(m.month)}</td><td class="num">${esc(clEth.toFixed(6))}</td><td class="num">${esc(m.block_rewards_eth.toFixed(6))}</td>`;
                     if (hasPrincipal) h += `<td class="num">${esc((m.principal_eth||0).toFixed(6))}</td>`;
                     h += `<td class="num" style="color:#fff;font-weight:600">${esc(m.total_eth.toFixed(6))}</td>`;
                     h += `<td class="num" style="color:var(--text-muted)">${esc(m.avg_price.toFixed(2))}</td>`;
                     h += `<td class="num">${esc(fF(m.total_fiat, ''))}</td></tr>`;
                 }
+                const clTotal = isAccrual ? (summary.accrual_eth || 0) : summary.withdrawals_eth;
                 const wavg = summary.total_income_eth > 0 ? (summary.total_income_fiat / summary.total_income_eth) : 0;
-                h += `</tbody><tfoot><tr><td>Total</td><td class="num">${esc(fE(summary.withdrawals_eth))}</td><td class="num">${esc(fE(summary.block_rewards_eth))}</td>`;
+                h += `</tbody><tfoot><tr><td>Total</td><td class="num">${esc(fE(clTotal))}</td><td class="num">${esc(fE(summary.block_rewards_eth))}</td>`;
                 if (hasPrincipal) h += `<td class="num">${esc(fE(summary.principal_eth))}</td>`;
                 h += `<td class="num">${esc(fE(summary.total_income_eth))}</td><td class="num">${esc(wavg.toFixed(2))}</td><td class="num">${esc(fF(summary.total_income_fiat, ''))}</td></tr></tfoot></table>`;
                 h += '</div>';
@@ -524,6 +554,41 @@
             advToggle.classList.add('open');
             advContent.classList.add('open');
         }
+
+        // --- Reporting mode toggle ---
+        const accrualHint = document.getElementById('accrualHint');
+        const modeHintText = document.getElementById('modeHintText');
+        const modeHidden = document.querySelector('input[name="reporting_mode"]');
+        const modeDescriptions = {
+            withdrawal: 'Cash-basis — reports on-chain withdrawals as income',
+            accrual: 'Reports daily balance changes from beaconcha.in as income',
+        };
+        function updateModeUI(mode) {
+            modeHidden.value = mode;
+            document.querySelectorAll('.mode-btn').forEach(b => b.classList.toggle('active', b.dataset.mode === mode));
+            modeHintText.textContent = modeDescriptions[mode];
+            const hasKey = !!document.querySelector('[name="beaconchain_api_key"]').value;
+            accrualHint.style.display = (mode === 'accrual' && !hasKey) ? 'block' : 'none';
+            if (mode === 'accrual' && !hasKey) {
+                advToggle.classList.add('open');
+                advContent.classList.add('open');
+            }
+        }
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                updateModeUI(this.dataset.mode);
+                saveToStorage();
+            });
+        });
+        // Also update hint when beaconchain key is entered
+        const bcKeyInput = document.querySelector('[name="beaconchain_api_key"]');
+        if (bcKeyInput) {
+            bcKeyInput.addEventListener('input', function() {
+                accrualHint.style.display = (modeHidden.value === 'accrual' && !this.value) ? 'block' : 'none';
+            });
+        }
+        // Sync on page load (in case accrual was restored from localStorage)
+        updateModeUI(modeHidden.value);
 
         // --- Real-time form validation ---
         const validators = {
@@ -654,6 +719,15 @@
                 if (firstInvalid) firstInvalid.focus();
                 return;
             }
+            // Require beaconchain key for accrual mode
+            const formData = new FormData(this);
+            if (formData.get('reporting_mode') === 'accrual' && !formData.get('beaconchain_api_key')) {
+                accrualHint.style.display = 'block';
+                advToggle.classList.add('open');
+                advContent.classList.add('open');
+                document.querySelector('[name="beaconchain_api_key"]').focus();
+                return;
+            }
             const btn = document.getElementById('generateBtn');
             const status = document.getElementById('status');
             const logBox = document.getElementById('logBox');
@@ -672,7 +746,6 @@
             currentFilename = null;
 
             saveToStorage();
-            const formData = new FormData(this);
 
             const payload = {
                 validator_or_address: formData.get('validator_or_address'),
@@ -684,6 +757,8 @@
                 etherscan_api_key: formData.get('etherscan_api_key'),
                 cryptocompare_api_key: formData.get('cryptocompare_api_key') || '',
                 coingecko_api_key: formData.get('coingecko_api_key') || '',
+                beaconchain_api_key: formData.get('beaconchain_api_key') || '',
+                reporting_mode: formData.get('reporting_mode') || 'withdrawal',
                 timezone: formData.get('timezone') || 'UTC',
             };
 

@@ -53,15 +53,19 @@ Optional environment variables (all have sensible defaults):
 5. Hourly ETH prices are fetched for the date range
 6. All events are priced in your chosen currency and exported to Excel/CSV
 
-## ⚠️ 0x02 compounding validator limitation
+## 0x02 compounding validators
 
-This tool uses **withdrawal-based (cash-basis) reporting**: it only captures rewards when ETH is actually withdrawn to your address. For 0x02 compounding validators, rewards accumulate silently inside the validator's balance without generating any on-chain withdrawal event. This means:
+For **0x01 (distributing) validators**, rewards are automatically swept to your address roughly every 5 days — these are captured by default via Etherscan.
 
-- **Compounding rewards are not captured** until the balance exceeds 2048 ETH (auto-sweep) or you explicitly request a withdrawal (EIP-7002)
-- A validator compounding from 32 → 40 ETH will show **zero income** in the report for that period
-- This makes the tool **unsuitable for 0x02 validators** if your jurisdiction requires accrual-based reporting
+For **0x02 (compounding) validators**, rewards accumulate inside the validator's balance without on-chain withdrawal events. To capture these, the tool integrates with the [beaconcha.in API](https://beaconcha.in/api):
 
-The tool works correctly for **0x01 (distributing) validators**, which automatically sweep rewards to your address roughly every 5 days.
+- Enter a free **beaconcha.in API key** under Advanced Options
+- The tool fetches daily balance snapshots and computes accrual rewards per day
+- Daily reward = `(end_balance - start_balance) - deposits + withdrawals`
+- Results are cached in SQLite so repeated queries are instant
+- Accrual events appear as a separate `"accrual"` type in the report
+
+Without a beaconcha.in API key, 0x02 validators will only show withdrawal-based (cash-basis) events — compounding rewards that haven't been withdrawn will not appear.
 
 ## Security
 

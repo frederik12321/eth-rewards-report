@@ -92,7 +92,9 @@ _BUNDLED_CACHE = os.path.join(os.path.dirname(__file__), "price_cache.db")
 if _PRICE_CACHE_PATH != _BUNDLED_CACHE and not os.path.exists(_PRICE_CACHE_PATH):
     import shutil
     if os.path.exists(_BUNDLED_CACHE):
-        os.makedirs(os.path.dirname(_PRICE_CACHE_PATH), exist_ok=True)
+        _cache_dir = os.path.dirname(_PRICE_CACHE_PATH)
+        if _cache_dir:
+            os.makedirs(_cache_dir, exist_ok=True)
         shutil.copy2(_BUNDLED_CACHE, _PRICE_CACHE_PATH)
         logger.info("Seeded price cache from bundled file to %s", _PRICE_CACHE_PATH)
 
@@ -334,6 +336,10 @@ def generate():
         currency = str(data.get("currency", "EUR")).strip().upper()[:3]
         output_format = str(data.get("output_format", "xlsx")).strip()[:4]
         tz_name = str(data.get("timezone", "UTC")).strip()[:50]
+        beaconchain_api_key = str(data.get("beaconchain_api_key", "")).strip()[:80]
+        reporting_mode = str(data.get("reporting_mode", "withdrawal")).strip()[:10]
+        if reporting_mode not in ("withdrawal", "accrual"):
+            reporting_mode = "withdrawal"
 
         if not validator_or_address:
             return jsonify({"error": "Validator index, public key, or withdrawal address is required"}), 400
@@ -407,7 +413,7 @@ def generate():
 
         thread = threading.Thread(
             target=_run_generation,
-            args=(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key, tz_name),
+            args=(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key, coingecko_api_key, tz_name, beaconchain_api_key, reporting_mode),
             daemon=True,
         )
         thread.start()
@@ -424,7 +430,7 @@ def generate():
         return jsonify({"error": "An unexpected error occurred"}), 500
 
 
-def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key="", tz_name="UTC"):
+def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_api_key, currency, output_format, cryptocompare_api_key="", coingecko_api_key="", tz_name="UTC", beaconchain_api_key="", reporting_mode="withdrawal"):
     """Background thread: resolve validators, fetch data, generate report."""
     # Thread-safe log callback (no sys.stdout hijacking)
     log_fn = lambda msg: _log_to_job(job, msg)
@@ -496,7 +502,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
         # Gather all events
         all_events = []
         for account in accounts:
-            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn)
+            events = gather_events(account, etherscan, start_ts, end_ts, log_fn=log_fn, beaconchain_api_key=beaconchain_api_key, reporting_mode=reporting_mode)
             all_events.extend(events)
 
         if not all_events:
@@ -515,6 +521,7 @@ def _run_generation(job, parsed, fee_recipient, date_from, date_to, etherscan_ap
         _prepare_events(all_events, prices, tz=user_tz)
         validator_info = _build_validator_info(accounts, all_events)
         summary = _build_summary(all_events, validator_info, currency)
+        summary["reporting_mode"] = reporting_mode
 
         # Build safe filename
         if len(accounts) == 1:
@@ -614,11 +621,13 @@ def _build_summary(all_events, validator_info, currency):
     br_fiat = sum((e["value_fiat"] for e in all_events if e["type"] == "block_reward"), _Z)
     p_eth = sum((e["amount_eth"] for e in all_events if e["type"] == "withdrawal_principal"), _Z)
     p_fiat = sum((e["value_fiat"] for e in all_events if e["type"] == "withdrawal_principal"), _Z)
+    a_eth = sum((e["amount_eth"] for e in all_events if e["type"] == "accrual"), _Z)
+    a_fiat = sum((e["value_fiat"] for e in all_events if e["type"] == "accrual"), _Z)
 
     summary = {
         "currency": currency,
-        "total_income_eth": float(w_eth + br_eth),
-        "total_income_fiat": float(w_fiat + br_fiat),
+        "total_income_eth": float(w_eth + br_eth + a_eth),
+        "total_income_fiat": float(w_fiat + br_fiat + a_fiat),
         "withdrawals_eth": float(w_eth),
         "withdrawals_fiat": float(w_fiat),
         "block_rewards_eth": float(br_eth),
@@ -626,11 +635,15 @@ def _build_summary(all_events, validator_info, currency):
         "event_count": len(all_events),
     }
 
+    if a_eth > 0:
+        summary["accrual_eth"] = float(a_eth)
+        summary["accrual_fiat"] = float(a_fiat)
+
     if p_eth > 0:
         summary["principal_eth"] = float(p_eth)
         summary["principal_fiat"] = float(p_fiat)
 
-    months = defaultdict(lambda: {"w_eth": _Z, "w_fiat": _Z, "br_eth": _Z, "br_fiat": _Z, "p_eth": _Z, "p_fiat": _Z, "prices": []})
+    months = defaultdict(lambda: {"w_eth": _Z, "w_fiat": _Z, "br_eth": _Z, "br_fiat": _Z, "p_eth": _Z, "p_fiat": _Z, "a_eth": _Z, "a_fiat": _Z, "prices": []})
     for e in all_events:
         mk = e["datetime"].strftime("%Y-%m")
         amt = e["amount_eth"]
@@ -645,6 +658,9 @@ def _build_summary(all_events, validator_info, currency):
         elif e["type"] == "withdrawal_principal":
             months[mk]["p_eth"] += amt
             months[mk]["p_fiat"] += val
+        elif e["type"] == "accrual":
+            months[mk]["a_eth"] += amt
+            months[mk]["a_fiat"] += val
 
     summary["months"] = []
     for mk in sorted(months.keys()):
@@ -657,10 +673,13 @@ def _build_summary(all_events, validator_info, currency):
             "withdrawals_fiat": float(m["w_fiat"]),
             "block_rewards_eth": float(m["br_eth"]),
             "block_rewards_fiat": float(m["br_fiat"]),
-            "total_eth": float(m["w_eth"] + m["br_eth"]),
-            "total_fiat": float(m["w_fiat"] + m["br_fiat"]),
+            "total_eth": float(m["w_eth"] + m["br_eth"] + m["a_eth"]),
+            "total_fiat": float(m["w_fiat"] + m["br_fiat"] + m["a_fiat"]),
             "avg_price": avg_price,
         }
+        if a_eth > 0:
+            entry["accrual_eth"] = float(m["a_eth"])
+            entry["accrual_fiat"] = float(m["a_fiat"])
         if p_eth > 0:
             entry["principal_eth"] = float(m["p_eth"])
             entry["principal_fiat"] = float(m["p_fiat"])
