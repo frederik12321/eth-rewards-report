@@ -851,14 +851,11 @@ class BeaconchainClient:
             dt = datetime.fromisoformat(str(day_start).replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d")
 
-    # Maximum validators per batch request (beaconcha.in stats endpoint limit)
-    BATCH_SIZE = 10
-
     def get_daily_rewards_batch(self, validator_indices: List[int], date_from: str, date_to: str, progress_fn=None) -> Dict[int, List[Dict]]:
         """Get daily reward accrual for multiple validators in a date range.
 
         Returns dict mapping validator_index -> list of dicts with keys: date, reward_gwei, timestamp.
-        Uses cache and batch API calls (up to 100 validators per request).
+        Uses cache; fetches one validator at a time (stats endpoint is single-validator only).
         progress_fn: optional callback(fraction) with fraction 0.0-1.0
         """
         _progress = progress_fn or (lambda f: None)
@@ -885,25 +882,21 @@ class BeaconchainClient:
 
         if needs_fetch:
             self.log(f"    {len(needs_fetch)} validator(s) need fresh data, {len(validator_indices) - len(needs_fetch)} fully cached")
-            total_batches = (len(needs_fetch) + self.BATCH_SIZE - 1) // self.BATCH_SIZE
-            # Fetch in batches of BATCH_SIZE
-            for batch_idx, i in enumerate(range(0, len(needs_fetch), self.BATCH_SIZE)):
-                batch = needs_fetch[i : i + self.BATCH_SIZE]
-                self.log(f"    Fetching batch {batch_idx + 1}/{total_batches} ({len(batch)} validators) from beaconcha.in...")
-                fetched_by_validator = self._fetch_stats_batch(batch)
+            for idx, vid in enumerate(needs_fetch):
+                self.log(f"    Fetching validator {vid} ({idx + 1}/{len(needs_fetch)})...")
+                fetched = self._fetch_stats(vid)
 
-                for vid in batch:
-                    fetched = fetched_by_validator.get(vid, [])
-                    cached_dates = {s["date"] for s in cached_results.get(vid, [])}
-                    missing_dates = all_dates - cached_dates
-                    new_stats = [s for s in fetched if s["date"] in missing_dates]
-                    if new_stats:
-                        self.cache.store(vid, new_stats)
-                    # Re-read from cache
-                    cached_results[vid] = self.cache.get_cached(vid, date_from, date_to)
+                cached_dates = {s["date"] for s in cached_results.get(vid, [])}
+                missing_dates = all_dates - cached_dates
+                new_stats = [s for s in fetched if s["date"] in missing_dates]
+                if new_stats:
+                    self.cache.store(vid, new_stats)
+                # Re-read from cache
+                cached_results[vid] = self.cache.get_cached(vid, date_from, date_to)
 
-                _progress((batch_idx + 1) / total_batches)
+                _progress((idx + 1) / len(needs_fetch))
         else:
+            self.log(f"    All {len(validator_indices)} validator(s) fully cached")
             _progress(1.0)
 
         # Convert to output format with timestamps
@@ -925,36 +918,28 @@ class BeaconchainClient:
 
         return output
 
-    def _fetch_stats_batch(self, validator_indices: List[int]) -> Dict[int, List[Dict]]:
-        """Fetch daily stats for multiple validators in one API call.
+    def _fetch_stats(self, validator_index: int) -> List[Dict]:
+        """Fetch all daily stats for a single validator from beaconcha.in.
 
-        beaconcha.in supports comma-separated indices: /validator/stats/{i1},{i2},...
-        Returns dict mapping validator_index -> list of parsed daily stats.
+        Uses GET /api/v1/validator/stats/{index} (single validator only).
+        Returns list of dicts with: date, start_balance, end_balance,
+        deposits_amount, withdrawals_amount, reward_gwei.
         """
-        ids_str = ",".join(str(v) for v in validator_indices)
-        data = self._get(f"/validator/stats/{ids_str}")
+        data = self._get(f"/validator/stats/{validator_index}")
 
         if not data:
-            self.log(f"    Warning: beaconcha.in returned empty response for batch of {len(validator_indices)} validators")
-            return {}
+            self.log(f"    Warning: beaconcha.in returned empty response for validator {validator_index}")
+            return []
         if data.get("status") != "OK":
-            self.log(f"    Warning: beaconcha.in returned status={data.get('status', '?')}, message={data.get('message', '?')}")
-            return {}
+            self.log(f"    Warning: beaconcha.in returned status={data.get('status', '?')}, message={data.get('message', '?')} for validator {validator_index}")
+            return []
 
         entries = data.get("data", [])
-        if not isinstance(entries, list):
-            entries = [entries]
-        self.log(f"    beaconcha.in returned {len(entries)} daily entries for {len(validator_indices)} validator(s)")
-
-        # Parse entries and group by validator index
-        results: Dict[int, List[Dict]] = {v: [] for v in validator_indices}
+        self.log(f"    beaconcha.in returned {len(entries)} daily entries for validator {validator_index}")
+        results = []
         for entry in entries:
             day_start = entry.get("day_start", "")
             if not day_start:
-                continue
-
-            vid = int(entry.get("validatorindex") or 0)
-            if vid not in results:
                 continue
 
             date_str = self._day_to_date(day_start)
@@ -967,7 +952,7 @@ class BeaconchainClient:
             # (balance goes down by withdrawals, up by deposits — we reverse those)
             reward_gwei = (end_bal - start_bal) - deposits + withdrawals
 
-            results[vid].append({
+            results.append({
                 "date": date_str,
                 "start_balance": start_bal,
                 "end_balance": end_bal,
