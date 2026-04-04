@@ -102,6 +102,11 @@ def load_config(path: str = "config.yaml") -> dict:
 
 class EtherscanClient:
     BASE_URL = "https://api.etherscan.io/v2/api"
+    # Routescan fallback for execution-layer queries when Etherscan is rate-limited.
+    # Routescan does NOT support txsBeaconWithdrawal, so only used for EL endpoints.
+    ROUTESCAN_URL = "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api"
+    # Actions that Routescan does NOT support (beacon-chain specific)
+    _ETHERSCAN_ONLY_ACTIONS = {"txsBeaconWithdrawal"}
 
     def __init__(self, api_key: str, log_fn=None):
         self.api_key = api_key
@@ -127,6 +132,8 @@ class EtherscanClient:
     def _get(self, params: Dict) -> Dict:
         params["chainid"] = 1
         params["apikey"] = self.api_key
+        action = params.get("action", "")
+        can_fallback = action not in self._ETHERSCAN_ONLY_ACTIONS
         max_retries = 4
         for attempt in range(max_retries):
             self._throttle()
@@ -137,6 +144,10 @@ class EtherscanClient:
 
                 # Check for Etherscan rate-limit response
                 if data.get("status") == "0" and "rate limit" in str(data.get("result", "")).lower():
+                    # Try Routescan fallback for supported actions
+                    if can_fallback:
+                        self.log(f"    Etherscan rate limited, trying Routescan fallback...")
+                        return self._routescan_get(params)
                     if attempt < max_retries - 1:
                         wait = 2 ** (attempt + 1)
                         self.log(f"    Rate limited by Etherscan, waiting {wait}s...")
@@ -153,6 +164,18 @@ class EtherscanClient:
                     time.sleep(wait)
                 else:
                     raise RuntimeError(f"Etherscan API connection failed after {max_retries} retries: {e}")
+
+    def _routescan_get(self, params: Dict) -> Dict:
+        """Fallback to Routescan API (no API key needed, no chainid param)."""
+        rs_params = {k: v for k, v in params.items() if k not in ("chainid", "apikey")}
+        try:
+            resp = self.session.get(self.ROUTESCAN_URL, params=rs_params, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            return data
+        except Exception as e:
+            self.log(f"    Routescan fallback also failed: {e}")
+            raise RuntimeError(f"Both Etherscan and Routescan failed: {e}")
 
     def get_beacon_withdrawals(self, address: str, start_ts: int, end_ts: int) -> List[Dict]:
         """Fetch all beacon chain withdrawals for a withdrawal address."""
