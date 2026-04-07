@@ -95,11 +95,11 @@
         <!-- What you need -->
         <div class="card">
             <h2>What You Need</h2>
-            <p>To generate a report, you need two things:</p>
-            <ol>
-                <li><strong>Your withdrawal address or validator index(es)</strong> &mdash; identifies your validator(s) on the Ethereum network. You can find your validator index on <a href="https://beaconcha.in" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">beaconcha.in</a> by searching for your address.</li>
-                <li><strong>A free Etherscan API key</strong> &mdash; needed to fetch your on-chain transaction data. Get one at <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">etherscan.io/apis</a> (takes 30 seconds, free tier is sufficient).</li>
-            </ol>
+            <p>To generate a report, you just need your <strong>withdrawal address or validator index(es)</strong> &mdash; this identifies your validator(s) on the Ethereum network. You can find your validator index on <a href="https://beaconcha.in" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">beaconcha.in</a> by searching for your address.</p>
+
+            <div class="note">
+                <strong>API keys:</strong> The tool uses shared free-tier API keys for <a href="https://etherscan.io" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">Etherscan</a> and <a href="https://beaconcha.in" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">beaconcha.in</a> by default. During busy periods these shared keys may hit their rate limits. If that happens, you can plug in your own API keys (both are free to obtain) under Advanced Options for faster, uninterrupted access.
+            </div>
 
             <h3>Input options</h3>
             <table class="info-table">
@@ -163,7 +163,7 @@
             </ul>
 
             <div class="warn">
-                <strong>Accrual mode requires a beaconcha.in API key</strong> to fetch daily validator stats. Get a free key at <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--orange)">beaconcha.in/api</a>. The first run may take a few minutes for many validators (data is cached for subsequent runs).
+                <strong>Accrual mode</strong> uses the beaconcha.in API to fetch daily validator stats. A shared key is included, but for many validators we recommend using your own free key from <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--orange)">beaconcha.in/api</a> to avoid rate limits. The first run may take a few minutes (data is cached for subsequent runs).
             </div>
         </div>
 
@@ -305,11 +305,11 @@
                     <tr><th>Data</th><th>Source</th><th>API Key</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td>Validator info</td><td>Beacon Chain API (PublicNode)</td><td>Not required</td></tr>
-                    <tr><td>CL withdrawals</td><td>Etherscan API v2</td><td>Required (free)</td></tr>
-                    <tr><td>EL rewards &amp; MEV</td><td>Etherscan API v2 (+ Routescan, Blockscout fallback)</td><td>Required (free)</td></tr>
-                    <tr><td>Daily accrual stats</td><td>beaconcha.in API v1</td><td>Required for accrual mode (free)</td></tr>
-                    <tr><td>ETH prices</td><td>CryptoCompare (+ DeFiLlama, CoinGecko fallback)</td><td>Not required</td></tr>
+                    <tr><td>Validator info</td><td>Beacon Chain API (PublicNode)</td><td>Not needed</td></tr>
+                    <tr><td>CL withdrawals</td><td>Etherscan API v2</td><td>Shared key included, own key optional</td></tr>
+                    <tr><td>EL rewards &amp; MEV</td><td>Etherscan API v2 (+ Routescan, Blockscout fallback)</td><td>Shared key included, own key optional</td></tr>
+                    <tr><td>Daily accrual stats</td><td>beaconcha.in API v1</td><td>Shared key included, own key recommended</td></tr>
+                    <tr><td>ETH prices</td><td>CryptoCompare (+ DeFiLlama, CoinGecko fallback)</td><td>Not needed</td></tr>
                 </tbody>
             </table>
 
