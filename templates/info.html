@@ -64,6 +64,15 @@
         table.info-table td { padding: 8px 12px; border-bottom: 1px solid rgba(56,68,77,0.4); color: var(--text-dim); }
         table.info-table td:first-child { color: #fff; font-weight: 500; }
 
+        .mode-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 16px 0; }
+        .mode-box { border: 1px solid var(--border); border-radius: 8px; padding: 16px; }
+        .mode-box.active-mode { border-color: var(--blue); }
+        .mode-box h4 { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 8px; }
+        .mode-box p { font-size: 12px; margin-bottom: 0; }
+        .mode-badge { display: inline-block; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 2px 6px; border-radius: 4px; margin-bottom: 8px; }
+        .mode-badge.blue { background: var(--blue-dim); color: var(--blue); }
+        .mode-badge.purple { background: var(--purple-dim); color: var(--purple); }
+
         footer { text-align: center; padding: 20px; color: var(--text-muted); font-size: 12px; }
         footer a { color: var(--text-dim); text-decoration: none; }
         footer a:hover { color: #fff; }
@@ -86,13 +95,13 @@
         <!-- What you need -->
         <div class="card">
             <h2>What You Need</h2>
-            <p>To generate a report, you need just two things:</p>
+            <p>To generate a report, you need two things:</p>
             <ol>
-                <li><strong>Your withdrawal address or validator index(es)</strong> &mdash; this identifies your validator(s) on the Ethereum network. You can find your validator index on <a href="https://beaconcha.in" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">beaconcha.in</a> by searching for your address.</li>
-                <li><strong>A free Etherscan API key</strong> &mdash; needed to fetch your transaction data. Get one at <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">etherscan.io/apis</a> (takes 30 seconds, free tier is sufficient).</li>
+                <li><strong>Your withdrawal address or validator index(es)</strong> &mdash; identifies your validator(s) on the Ethereum network. You can find your validator index on <a href="https://beaconcha.in" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">beaconcha.in</a> by searching for your address.</li>
+                <li><strong>A free Etherscan API key</strong> &mdash; needed to fetch your on-chain transaction data. Get one at <a href="https://etherscan.io/apis" target="_blank" rel="noopener noreferrer" style="color:var(--blue)">etherscan.io/apis</a> (takes 30 seconds, free tier is sufficient).</li>
             </ol>
 
-            <h3>What to enter in the form</h3>
+            <h3>Input options</h3>
             <table class="info-table">
                 <thead>
                     <tr><th>Field</th><th>What to enter</th><th>Example</th></tr>
@@ -105,19 +114,56 @@
                     </tr>
                     <tr>
                         <td>Validator index</td>
-                        <td>Your validator number (single or comma-separated)</td>
+                        <td>Your validator number (single or comma-separated, up to 200)</td>
                         <td><code>123456</code> or <code>123456, 123457</code></td>
                     </tr>
                     <tr>
+                        <td>Validator public key</td>
+                        <td>Your 48-byte BLS public key (with or without 0x prefix)</td>
+                        <td><code>0xab12...ef56</code></td>
+                    </tr>
+                    <tr>
                         <td>Fee recipient <span style="color:var(--text-muted)">(optional)</span></td>
-                        <td>Only needed if your EL rewards go to a <em>different</em> address than your withdrawal address</td>
+                        <td>Only needed if your EL rewards go to a <em>different</em> address</td>
                         <td><code>0x9876...5432</code></td>
                     </tr>
                 </tbody>
             </table>
 
             <div class="note">
-                <strong>Tip:</strong> If you enter a withdrawal address, the tool will find all withdrawals and block rewards for that address. If you enter validator index(es), it will resolve them to your withdrawal address automatically.
+                <strong>Tip:</strong> If you enter a withdrawal address, the tool finds all withdrawals and block rewards for that address. If you enter validator index(es), it resolves them to your withdrawal address automatically.
+            </div>
+        </div>
+
+        <!-- Reporting modes -->
+        <div class="card">
+            <h2>Reporting Modes</h2>
+            <p>The tool supports two reporting modes. You can switch between them using the toggle on the main page.</p>
+
+            <div class="mode-compare">
+                <div class="mode-box">
+                    <span class="mode-badge blue">Default</span>
+                    <h4>Withdrawal-Based</h4>
+                    <p>Income is reported when ETH is swept to your address. Uses a <strong>cash-basis</strong> approach: each withdrawal event is a taxable moment, valued at the ETH price when it arrives.</p>
+                    <p style="margin-top:8px">Best for <strong>0x01 (distributing)</strong> validators, where rewards are swept every ~5 days.</p>
+                </div>
+                <div class="mode-box">
+                    <span class="mode-badge purple">Advanced</span>
+                    <h4>Accrual-Based</h4>
+                    <p>Income is reported as it <strong>accrues daily</strong> on the beacon chain, even before it's withdrawn. Tracks the daily balance change for each validator.</p>
+                    <p style="margin-top:8px">Recommended for <strong>0x02 (compounding)</strong> validators, where rewards stay in the validator balance. Also useful in jurisdictions that require accrual-based tax reporting.</p>
+                </div>
+            </div>
+
+            <h3>When to use accrual mode</h3>
+            <ul>
+                <li>Your validators use <strong>0x02 compounding credentials</strong> (rewards compound instead of being swept)</li>
+                <li>Your jurisdiction treats staking rewards as income <strong>when earned</strong>, not when received</li>
+                <li>You want to track daily reward accumulation independently of withdrawal timing</li>
+            </ul>
+
+            <div class="warn">
+                <strong>Accrual mode requires a beaconcha.in API key</strong> to fetch daily validator stats. Get a free key at <a href="https://beaconcha.in/api" target="_blank" rel="noopener noreferrer" style="color:var(--orange)">beaconcha.in/api</a>. The first run may take a few minutes for many validators (data is cached for subsequent runs).
             </div>
         </div>
 
@@ -130,22 +176,7 @@
                 <li><strong>Fee recipient address</strong> &mdash; set in your validator client configuration. Receives execution layer (EL) rewards: priority fees and MEV payments when your validator proposes a block.</li>
             </ul>
             <p>For most solo stakers, these are the <strong>same address</strong>. In that case, you only need to enter the withdrawal address and can leave the fee recipient field empty.</p>
-            <p>However, if you use a <strong>different address</strong> as your fee recipient (for example, a hot wallet for immediate access to EL rewards), you should enter it in the optional fee recipient field so the tool can find those rewards too.</p>
-
-            <div class="warn">
-                <strong>Common case:</strong> If you run multiple validators but one has a different withdrawal address while sharing the same fee recipient, you can enter the shared fee recipient address to capture all EL rewards in one report.
-            </div>
-        </div>
-
-        <!-- Overview -->
-        <div class="card">
-            <h2>What the Tool Does</h2>
-            <p>The tool tracks two types of staking income:</p>
-            <ul>
-                <li><strong>Consensus layer (CL) withdrawals</strong> &mdash; periodic reward sweeps from the beacon chain to your withdrawal address</li>
-                <li><strong>Execution layer (EL) rewards</strong> &mdash; block proposal tips and MEV payments received at your fee recipient address</li>
-            </ul>
-            <p>Each reward event is matched to the historical ETH price at the time it occurred, giving you an accurate fiat value for tax reporting.</p>
+            <p>If you use a <strong>different address</strong> as your fee recipient (e.g. a hot wallet), enter it in the optional fee recipient field so the tool can find those rewards too.</p>
         </div>
 
         <!-- How it works step by step -->
@@ -155,27 +186,35 @@
                 <div class="step-num">1</div>
                 <div class="step-content">
                     <div class="step-title">Resolve validators</div>
-                    <div class="step-desc">Your validator index, public key, or withdrawal address is resolved via the Beacon Chain API to identify which validators to track and their withdrawal address.</div>
+                    <div class="step-desc">Your validator index, public key, or withdrawal address is resolved via the Beacon Chain API to identify which validators to track, their withdrawal address, and credential type (0x01 or 0x02).</div>
                 </div>
                 <div class="step-num">2</div>
                 <div class="step-content">
-                    <div class="step-title">Fetch CL withdrawals</div>
-                    <div class="step-desc">All beacon chain withdrawal events are fetched from Etherscan for your <strong>withdrawal address</strong>. For 0x01 (distributing) validators, this includes the automatic reward sweeps that happen roughly every 5 days.</div>
+                    <div class="step-title">Fetch historical prices</div>
+                    <div class="step-desc">Hourly ETH prices in your chosen currency are fetched from CryptoCompare (with DeFiLlama and CoinGecko as automatic fallbacks). Prices are cached locally &mdash; subsequent reports reuse cached data.</div>
                 </div>
                 <div class="step-num">3</div>
                 <div class="step-content">
-                    <div class="step-title">Fetch EL rewards</div>
-                    <div class="step-desc">Block proposals are fetched from Etherscan for your <strong>fee recipient address</strong> (or withdrawal address if no separate fee recipient is set). Detected via direct block rewards and MEV payments from known builder addresses.</div>
+                    <div class="step-title">Fetch reward events</div>
+                    <div class="step-desc">
+                        <strong>Withdrawal mode:</strong> CL withdrawals are fetched from Etherscan for your withdrawal address. For 0x02 validators, withdrawals are automatically classified as income vs principal.<br>
+                        <strong>Accrual mode:</strong> Daily balance changes are fetched from beaconcha.in for each validator index. The daily reward is calculated as <code>(end_balance - start_balance) - deposits + withdrawals</code>. Events are aggregated by date across all validators.
+                    </div>
                 </div>
                 <div class="step-num">4</div>
                 <div class="step-content">
-                    <div class="step-title">Price matching</div>
-                    <div class="step-desc">Historical ETH prices are fetched at hourly resolution from CryptoCompare. Each reward event is matched to the closest hourly price, giving you a fiat value accurate to within ~30 minutes.</div>
+                    <div class="step-title">Fetch execution layer rewards</div>
+                    <div class="step-desc">Block proposals and MEV payments are fetched from Etherscan for your fee recipient address. MEV is detected via a list of ~40+ known builder addresses, with a fallback check for unknown senders. If Etherscan is rate-limited, Routescan and Blockscout are tried automatically.</div>
                 </div>
                 <div class="step-num">5</div>
                 <div class="step-content">
+                    <div class="step-title">Price matching</div>
+                    <div class="step-desc">Each reward event is matched to the closest hourly ETH price, giving a fiat value accurate to within ~30 minutes.</div>
+                </div>
+                <div class="step-num">6</div>
+                <div class="step-content">
                     <div class="step-title">Report generation</div>
-                    <div class="step-desc">All events are compiled into a report with monthly breakdowns, totals, and per-validator statistics. You can view the summary on screen or download as Excel (.xlsx) or CSV.</div>
+                    <div class="step-desc">All events are compiled into a report with monthly breakdowns, totals, and per-validator statistics. Available as Excel (.xlsx), CSV, or both. The Excel report includes a summary sheet, monthly detail sheets, and a validators sheet.</div>
                 </div>
             </div>
         </div>
@@ -188,12 +227,16 @@
             <p>The original withdrawal credential type. Max effective balance is 32 ETH. Any balance above 32 ETH is automatically swept to your withdrawal address roughly every 5 days. <strong>All withdrawals are income.</strong></p>
 
             <h3>0x02 Compounding Validators</h3>
-            <p>Introduced with the Pectra upgrade (May 2025). Rewards compound in the validator balance up to 2048 ETH effective balance. The tool automatically detects 0x02 validators and classifies withdrawals into three categories:</p>
+            <p>Introduced with the Pectra upgrade (May 2025). Rewards compound in the validator balance up to 2048 ETH effective balance. The tool automatically detects 0x02 validators and classifies withdrawals:</p>
             <ul>
-                <li><strong>Skimming (income)</strong> &mdash; automatic sweeps of balance exceeding the 2048 ETH cap. These happen automatically and are taxable income, similar to 0x01 validator sweeps.</li>
-                <li><strong>User-requested (not income)</strong> &mdash; you manually requested a partial withdrawal by sending a transaction to the EIP-7002 system contract. This is you taking out your own principal/accumulated rewards &mdash; the tool treats it as return of capital, not new income.</li>
-                <li><strong>Consolidation transfers (not income)</strong> &mdash; when you merge validators via EIP-7251, balance moves from a source validator to a target validator. The outgoing "withdrawal" from the source is just an internal transfer &mdash; no new ETH was earned.</li>
+                <li><strong>Skimming (income)</strong> &mdash; automatic sweeps of balance exceeding the 2048 ETH cap. Taxable income, similar to 0x01 validator sweeps.</li>
+                <li><strong>User-requested (not income)</strong> &mdash; partial withdrawals you initiated via the EIP-7002 system contract. Treated as return of capital.</li>
+                <li><strong>Consolidation transfers (not income)</strong> &mdash; balance moves between validators via EIP-7251. Internal transfer, not new income.</li>
             </ul>
+
+            <div class="note">
+                <strong>Recommendation:</strong> For 0x02 compounding validators, consider using <strong>accrual-based reporting</strong> to capture daily reward accumulation, since rewards stay in the validator balance rather than being swept out.
+            </div>
         </div>
 
         <!-- EL rewards detail -->
@@ -207,7 +250,7 @@
             <h3>MEV Payments</h3>
             <p>Most validators use <strong>MEV-boost</strong> to outsource block building to specialized builders for higher rewards. The builder sends a lump-sum payment to your fee recipient address. The tool detects these by:</p>
             <ol>
-                <li>Checking the sender against a list of ~40 known builder addresses (instant)</li>
+                <li>Checking the sender against a list of ~40+ known builder addresses (instant)</li>
                 <li>For unknown senders: looking up the block's fee recipient to verify the payment came from whoever built the block (requires an extra API call per candidate)</li>
             </ol>
         </div>
@@ -215,57 +258,83 @@
         <!-- Price data -->
         <div class="card">
             <h2>Price Data</h2>
-            <p>Historical ETH prices are sourced from CryptoCompare at <strong>hourly resolution</strong>. Each reward event is matched to the closest hourly price point.</p>
+            <p>Historical ETH prices are sourced at <strong>hourly resolution</strong>. The tool tries multiple sources in order:</p>
+            <ol>
+                <li><strong>CryptoCompare</strong> &mdash; primary source, supports 10+ fiat currencies directly</li>
+                <li><strong>DeFiLlama</strong> &mdash; automatic fallback, uses ETH/USD with ECB forex conversion via Frankfurter API</li>
+                <li><strong>CoinGecko</strong> &mdash; second fallback, useful for currencies not covered by CryptoCompare</li>
+            </ol>
             <p>Prices are cached locally after the first fetch, so subsequent reports for the same period load instantly.</p>
+
+            <h3>Supported currencies</h3>
+            <p>EUR, USD, GBP, CHF, CAD, AUD, JPY, SEK, NOK, DKK &mdash; and more via CoinGecko fallback.</p>
+
             <div class="note">
                 <strong>Note:</strong> Prices represent a volume-weighted average across major exchanges. Small differences compared to other tools are normal due to different price sources and time resolution.
             </div>
         </div>
 
-        <!-- Methodology -->
+        <!-- Output formats -->
         <div class="card">
-            <h2>Methodology: Withdrawal-Based Reporting</h2>
-            <p>This tool uses a <strong>withdrawal-based</strong> (cash-basis) approach: income is reported when ETH arrives at your execution layer address, not when it accrues on the beacon chain.</p>
+            <h2>Output Formats</h2>
 
-            <table class="info-table">
-                <thead>
-                    <tr><th>Approach</th><th>When income is reported</th><th>Used by</th></tr>
-                </thead>
-                <tbody>
-                    <tr>
-                        <td>Withdrawal-based (this tool)</td>
-                        <td>When ETH is swept to your address</td>
-                        <td>Cash-basis accounting</td>
-                    </tr>
-                    <tr>
-                        <td>Accrual-based</td>
-                        <td>When rewards accumulate on beacon chain</td>
-                        <td>Some jurisdictions require this</td>
-                    </tr>
-                </tbody>
-            </table>
+            <h3>Excel (.xlsx)</h3>
+            <p>The Excel report includes multiple sheets:</p>
+            <ul>
+                <li><strong>Summary</strong> &mdash; monthly totals with separate columns for accrual rewards, withdrawals, block rewards, and total income (in both ETH and your fiat currency)</li>
+                <li><strong>Validators</strong> &mdash; per-validator details including credential type, status, balance, and total withdrawn</li>
+                <li><strong>Monthly sheets</strong> &mdash; one sheet per month with every individual reward event, its timestamp, ETH amount, price, and fiat value</li>
+            </ul>
 
-            <p style="margin-top:12px;font-size:13px;color:var(--text-dim)"><strong>Date range:</strong> Both the start and end date are included. Selecting Jan 1 &ndash; Dec 31 captures the full year. Under the hood, the end date is extended to 23:59:59 UTC.</p>
+            <h3>CSV</h3>
+            <p>A flat file with one row per reward event. Includes date, time, type, validator, ETH amount, price, and fiat value. Easy to import into accounting software or spreadsheets.</p>
 
-            <div class="warn">
-                <strong>Important:</strong> This can cause small differences at month boundaries compared to accrual-based tools. The total over a longer period will converge, but individual months may differ by the amount of rewards that haven't been swept yet at month-end.
+            <h3>Both</h3>
+            <p>Downloads a ZIP file containing both the Excel and CSV reports.</p>
+
+            <div class="note">
+                <strong>Timezone:</strong> You can set a timezone in Advanced Options. All dates and times in the report will use your selected timezone instead of UTC.
             </div>
         </div>
 
         <!-- Data sources -->
         <div class="card">
-            <h2>Data Sources</h2>
+            <h2>Data Sources &amp; API Keys</h2>
             <table class="info-table">
                 <thead>
-                    <tr><th>Data</th><th>Source</th><th>API Key Required</th></tr>
+                    <tr><th>Data</th><th>Source</th><th>API Key</th></tr>
                 </thead>
                 <tbody>
-                    <tr><td>Validator info</td><td>Beacon Chain API (PublicNode)</td><td>No</td></tr>
-                    <tr><td>CL withdrawals</td><td>Etherscan API v2</td><td>Yes (free)</td></tr>
-                    <tr><td>EL rewards &amp; MEV</td><td>Etherscan API v2</td><td>Yes (free)</td></tr>
-                    <tr><td>ETH prices</td><td>CryptoCompare API</td><td>No (optional)</td></tr>
+                    <tr><td>Validator info</td><td>Beacon Chain API (PublicNode)</td><td>Not required</td></tr>
+                    <tr><td>CL withdrawals</td><td>Etherscan API v2</td><td>Required (free)</td></tr>
+                    <tr><td>EL rewards &amp; MEV</td><td>Etherscan API v2 (+ Routescan, Blockscout fallback)</td><td>Required (free)</td></tr>
+                    <tr><td>Daily accrual stats</td><td>beaconcha.in API v1</td><td>Required for accrual mode (free)</td></tr>
+                    <tr><td>ETH prices</td><td>CryptoCompare (+ DeFiLlama, CoinGecko fallback)</td><td>Not required</td></tr>
                 </tbody>
             </table>
+
+            <h3>Rate limits &amp; reliability</h3>
+            <ul>
+                <li><strong>Etherscan:</strong> 5 calls/sec on free tier. If rate-limited, the tool automatically falls back to Routescan and Blockscout for execution layer queries.</li>
+                <li><strong>beaconcha.in:</strong> 10 requests/min. Each validator requires one API call on first run. Data is cached &mdash; repeat runs are instant.</li>
+                <li><strong>CryptoCompare:</strong> Generous free tier. Falls back to DeFiLlama/CoinGecko automatically if unavailable.</li>
+            </ul>
+
+            <div class="good">
+                <strong>Caching:</strong> Both price data and validator stats are cached locally. After the first run, subsequent reports generate much faster since only new data needs to be fetched.
+            </div>
+        </div>
+
+        <!-- Security -->
+        <div class="card">
+            <h2>Privacy &amp; Security</h2>
+            <ul>
+                <li><strong>No data stored</strong> &mdash; your API keys, addresses, and report data are processed in memory and never saved to disk (except temporary report files that are deleted after download)</li>
+                <li><strong>API keys masked</strong> &mdash; API keys are never included in log messages or error outputs</li>
+                <li><strong>Server-side processing</strong> &mdash; all API calls are made from the server, so your API keys are never exposed in browser network traffic</li>
+                <li><strong>HTTPS enforced</strong> &mdash; all connections use HTTPS with HSTS headers</li>
+            </ul>
+            <p>For full details, see our <a href="/privacy" style="color:var(--blue)">Privacy Policy</a>.</p>
         </div>
 
         <div style="text-align:center">
