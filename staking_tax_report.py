@@ -11,6 +11,7 @@ import bisect
 import os
 import re
 import sys
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -108,14 +109,17 @@ class EtherscanClient:
         "https://api.routescan.io/v2/network/mainnet/evm/1/etherscan/api",
         "https://eth.blockscout.com/api",
     ]
-    # Actions that only Etherscan supports (beacon-chain specific)
-    _ETHERSCAN_ONLY_ACTIONS = {"txsBeaconWithdrawal"}
+    # Actions that only Etherscan supports — don't fall back to Routescan/Blockscout.
+    # txsBeaconWithdrawal: beacon-chain specific, not in any fallback API.
+    # eth_getBlockByNumber: proxy/RPC action, Blockscout returns 400 for it.
+    _ETHERSCAN_ONLY_ACTIONS = {"txsBeaconWithdrawal", "eth_getBlockByNumber"}
 
     def __init__(self, api_key: str, log_fn=None):
         self.api_key = api_key
         self.log = log_fn or print
         self._min_interval = 0.35  # max ~2.8 req/s — comfortable under 5/s free tier
         self._last_call = 0.0
+        self._throttle_lock = threading.Lock()
         self.session = requests.Session()
         # Increase connection pool for sustained API usage
         adapter = requests.adapters.HTTPAdapter(
@@ -126,11 +130,16 @@ class EtherscanClient:
         self.session.mount("https://", adapter)
 
     def _throttle(self):
-        """Ensure minimum interval between API calls to stay under rate limit."""
-        elapsed = time.monotonic() - self._last_call
-        if elapsed < self._min_interval:
-            time.sleep(self._min_interval - elapsed)
-        self._last_call = time.monotonic()
+        """Ensure minimum interval between API calls to stay under rate limit.
+
+        Thread-safe: uses a lock so parallel fetches (e.g. txlist + txlistinternal)
+        don't both fire at the same instant and blow past the rate limit.
+        """
+        with self._throttle_lock:
+            elapsed = time.monotonic() - self._last_call
+            if elapsed < self._min_interval:
+                time.sleep(self._min_interval - elapsed)
+            self._last_call = time.monotonic()
 
     def _get(self, params: Dict) -> Dict:
         params["chainid"] = 1
