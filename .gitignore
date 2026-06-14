@@ -5,3 +5,13 @@ __pycache__/
 *.pyc
 .env
 stats.json
+
+# OS / IDE / cache
+.DS_Store
+.claude/
+.pytest_cache/
+*.log
+.venv/
+venv/
+
+# This public repo contains no personal financial data or API keys.
