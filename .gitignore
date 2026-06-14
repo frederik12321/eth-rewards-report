@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 .env
 stats.json
+price_cache.db
 
 # OS / IDE / cache
 .DS_Store
