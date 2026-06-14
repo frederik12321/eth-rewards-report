@@ -150,7 +150,9 @@ class EtherscanClient:
         for attempt in range(max_retries):
             self._throttle()
             try:
-                resp = self.session.get(self.BASE_URL, params=params, timeout=30)
+                # (connect, read) timeouts: fail a stuck connect in 10s so we
+                # retry against another IP fast, but allow 30s for large reads.
+                resp = self.session.get(self.BASE_URL, params=params, timeout=(10, 30))
                 resp.raise_for_status()
                 data = resp.json()
 
@@ -175,6 +177,9 @@ class EtherscanClient:
                 if attempt < max_retries - 1:
                     wait = 2 ** (attempt + 1)
                     self.log(f"    Connection error, retrying in {wait}s... ({safe_err})")
+                    # Drop pooled connections so the retry re-resolves DNS and dials
+                    # a fresh socket instead of reusing a dead Etherscan edge IP.
+                    self.session.close()
                     time.sleep(wait)
                 else:
                     raise RuntimeError(f"Etherscan API connection failed after {max_retries} retries: {safe_err}")
