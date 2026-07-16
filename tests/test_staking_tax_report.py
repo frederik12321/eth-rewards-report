@@ -304,3 +304,73 @@ class TestConstants:
         for addr in KNOWN_BUILDER_ADDRESSES:
             assert addr == addr.lower()
             assert addr.startswith("0x")
+
+
+class TestEtherscanPagination:
+    """Etherscan V2 caps pages at 1000 rows and rejects page*offset > 10000.
+
+    Regression tests for the silent truncation this caused: page 1 returned
+    1000 rows, the client saw fewer rows than requested and stopped, so only
+    the first 1000 withdrawals of an address's history were ever fetched.
+    """
+
+    @staticmethod
+    def _make_client(withdrawals):
+        from staking_tax_report import EtherscanClient
+
+        client = EtherscanClient("test-key", log_fn=lambda *a, **k: None)
+        client._throttle = lambda: None
+
+        def fake_get(params):
+            action = params.get("action")
+            if action == "getblocknobytime":
+                return {"status": "1", "result": ""}
+            assert action == "txsBeaconWithdrawal"
+            page = int(params["page"])
+            offset = int(params["offset"])
+            assert offset <= 1000, "requested page size exceeds Etherscan V2 cap"
+            if page * offset > 10000:
+                return {"status": "0", "message": "NOTOK",
+                        "result": "Result window is too large, PageNo x Offset size must be less than or equal to 10000"}
+            start_block = int(params["startblock"])
+            in_range = [w for w in withdrawals if int(w["blockNumber"]) >= start_block]
+            rows = in_range[(page - 1) * offset: page * offset]
+            if not rows:
+                return {"status": "0", "message": "No transactions found", "result": []}
+            return {"status": "1", "message": "OK", "result": rows[:1000]}
+
+        client._get = fake_get
+        return client
+
+    @staticmethod
+    def _withdrawal(i):
+        return {
+            "withdrawalIndex": str(i),
+            "validatorIndex": str(100 + i % 55),
+            "address": "0x" + "ab" * 20,
+            "amount": "15000000",
+            "blockNumber": str(17_000_000 + i),
+            "timestamp": str(1_700_000_000 + i * 12),
+        }
+
+    def test_fetches_beyond_first_page(self):
+        data = [self._withdrawal(i) for i in range(2500)]
+        client = self._make_client(data)
+        result = client.get_beacon_withdrawals("0x" + "ab" * 20, 0, 2**31)
+        assert len(result) == 2500
+
+    def test_fetches_beyond_10k_result_window(self):
+        data = [self._withdrawal(i) for i in range(12000)]
+        client = self._make_client(data)
+        result = client.get_beacon_withdrawals("0x" + "ab" * 20, 0, 2**31)
+        assert len(result) == 12000
+        blocks = {w["block_number"] for w in result}
+        assert len(blocks) == 12000, "cursor overlap must be de-duplicated"
+
+    def test_date_range_filter_still_applies(self):
+        data = [self._withdrawal(i) for i in range(50)]
+        client = self._make_client(data)
+        start = 1_700_000_000 + 10 * 12
+        end = 1_700_000_000 + 19 * 12
+        result = client.get_beacon_withdrawals("0x" + "ab" * 20, start, end)
+        assert len(result) == 10

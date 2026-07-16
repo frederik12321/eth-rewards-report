@@ -208,60 +208,91 @@ class EtherscanClient:
                 continue
         raise RuntimeError(f"Etherscan rate limited and all fallbacks failed. Last: {last_error}")
 
+    # Etherscan V2 caps every page at 1000 rows (larger `offset` values are
+    # silently truncated) and rejects any query where page*offset > 10000
+    # ("Result window is too large"). Deep histories must therefore be walked
+    # with a startblock cursor instead of unbounded page numbers.
+    PAGE_SIZE = 1000
+    MAX_WINDOW = 10000
+
     def get_beacon_withdrawals(self, address: str, start_ts: int, end_ts: int) -> List[Dict]:
         """Fetch all beacon chain withdrawals for a withdrawal address."""
         self.log(f"  Fetching withdrawals from Etherscan for {address[:10]}...{address[-4:]}")
+        # Narrow to the report period so most reports fit in a single window
+        start_block = self._get_block_number_by_timestamp(start_ts, "before") or 0
+        end_block = self._get_block_number_by_timestamp(end_ts, "before") or 99999999
+
         all_withdrawals = []
-        page = 1
-        page_size = 10000
+        seen_indexes = set()
+        cursor = start_block
 
         while True:
-            data = self._get({
-                "module": "account",
-                "action": "txsBeaconWithdrawal",
-                "address": address,
-                "startblock": 0,
-                "endblock": 99999999,
-                "page": page,
-                "offset": page_size,
-                "sort": "asc",
-            })
+            page = 1
+            last_block = cursor
+            window_exhausted = True
 
-            if data.get("status") != "1":
-                result_msg = data.get("result", "")
-                message = data.get("message", "")
-                if "No transactions found" in str(message) or "No transactions found" in str(result_msg):
-                    self.log(f"  No beacon withdrawals found for this address")
-                    break
-                if "Invalid API Key" in str(result_msg) or "Missing" in str(result_msg):
-                    raise RuntimeError(f"Etherscan API key error: {result_msg}")
-                if page == 1:
-                    self.log(f"  Etherscan withdrawals response: status={message}, result={result_msg}")
-                break
-
-            results = data.get("result", [])
-            if not results:
-                break
-
-            for w in results:
-                ts = int(w["timestamp"])
-                if ts < start_ts or ts > end_ts:
-                    continue
-                amount_gwei = int(w["amount"])
-                if amount_gwei < 0:
-                    continue  # Skip invalid negative amounts
-                all_withdrawals.append({
-                    "timestamp": ts,
-                    "validator": int(w["validatorIndex"]),
-                    "amount_gwei": amount_gwei,
-                    "amount_eth": Decimal(w["amount"]) / GWEI_PER_ETH,
-                    "block_number": int(w["blockNumber"]),
-                    "type": "withdrawal",
+            while page * self.PAGE_SIZE <= self.MAX_WINDOW:
+                data = self._get({
+                    "module": "account",
+                    "action": "txsBeaconWithdrawal",
+                    "address": address,
+                    "startblock": cursor,
+                    "endblock": end_block,
+                    "page": page,
+                    "offset": self.PAGE_SIZE,
+                    "sort": "asc",
                 })
 
-            if len(results) < page_size:
+                if data.get("status") != "1":
+                    result_msg = data.get("result", "")
+                    message = data.get("message", "")
+                    if "No transactions found" in str(message) or "No transactions found" in str(result_msg):
+                        if cursor == start_block and page == 1:
+                            self.log(f"  No beacon withdrawals found for this address")
+                        break
+                    if "Invalid API Key" in str(result_msg) or "Missing" in str(result_msg):
+                        raise RuntimeError(f"Etherscan API key error: {result_msg}")
+                    self.log(f"  Etherscan withdrawals response: status={message}, result={result_msg}")
+                    break
+
+                results = data.get("result", [])
+                if not results:
+                    break
+
+                for w in results:
+                    widx = w.get("withdrawalIndex")
+                    if widx is not None:
+                        if widx in seen_indexes:
+                            continue
+                        seen_indexes.add(widx)
+                    last_block = int(w["blockNumber"])
+                    ts = int(w["timestamp"])
+                    if ts < start_ts or ts > end_ts:
+                        continue
+                    amount_gwei = int(w["amount"])
+                    if amount_gwei < 0:
+                        continue  # Skip invalid negative amounts
+                    all_withdrawals.append({
+                        "timestamp": ts,
+                        "validator": int(w["validatorIndex"]),
+                        "amount_gwei": amount_gwei,
+                        "amount_eth": Decimal(w["amount"]) / GWEI_PER_ETH,
+                        "block_number": int(w["blockNumber"]),
+                        "type": "withdrawal",
+                    })
+
+                if len(results) < self.PAGE_SIZE:
+                    break
+                page += 1
+            else:
+                # Hit the 10k result window with full pages: more data remains.
+                # Restart from the last block seen (inclusive, so same-block
+                # leftovers are re-fetched and de-duped by withdrawalIndex).
+                window_exhausted = False
+
+            if window_exhausted or last_block <= cursor:
                 break
-            page += 1
+            cursor = last_block
 
         self.log(f"  Fetched {len(all_withdrawals)} withdrawals in date range")
         return all_withdrawals
@@ -280,21 +311,52 @@ class EtherscanClient:
         return result.get("miner", "").lower()
 
     def _fetch_paginated(self, params_base: Dict) -> List[Dict]:
-        """Fetch all pages from an Etherscan list endpoint."""
+        """Fetch all pages from an Etherscan list endpoint.
+
+        Respects the V2 limits (1000 rows/page, page*offset <= 10000). When a
+        query has more rows than one 10k window and supports `startblock`, the
+        window is advanced by block cursor; overlap rows are de-duplicated.
+        """
         all_results = []
-        page = 1
+        seen = set()
+        cursor = params_base.get("startblock")
+
         while True:
-            params = {**params_base, "page": page, "offset": 10000}
-            data = self._get(params)
-            if data.get("status") != "1":
+            params = {**params_base}
+            if cursor is not None:
+                params["startblock"] = cursor
+            page = 1
+            last_block = None
+            window_exhausted = True
+
+            while page * self.PAGE_SIZE <= self.MAX_WINDOW:
+                data = self._get({**params, "page": page, "offset": self.PAGE_SIZE})
+                if data.get("status") != "1":
+                    break
+                results = data.get("result", [])
+                if not results:
+                    break
+                for r in results:
+                    key = tuple(sorted(r.items()))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    all_results.append(r)
+                    if "blockNumber" in r:
+                        last_block = int(r["blockNumber"])
+                if len(results) < self.PAGE_SIZE:
+                    break
+                page += 1
+            else:
+                window_exhausted = False
+
+            if window_exhausted:
                 break
-            results = data.get("result", [])
-            if not results:
+            if "startblock" not in params_base or last_block is None or (cursor is not None and last_block <= int(cursor)):
+                self.log(f"    Warning: result set exceeds Etherscan's 10k window for action={params_base.get('action')}; results may be incomplete")
                 break
-            all_results.extend(results)
-            if len(results) < 10000:
-                break
-            page += 1
+            cursor = last_block
+
         return all_results
 
     def _get_block_number_by_timestamp(self, timestamp: int, closest: str = "before") -> int:
@@ -306,7 +368,7 @@ class EtherscanClient:
             "closest": closest,
         })
         result = data.get("result", "")
-        return int(result) if result and result.isdigit() else 0
+        return int(result) if isinstance(result, str) and result.isdigit() else 0
 
     def get_execution_rewards(self, address: str, start_ts: int, end_ts: int) -> List[Dict]:
         """Fetch all execution layer rewards: local blocks (priority fees) + MEV payments.
